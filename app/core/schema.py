@@ -8,8 +8,8 @@ from typing import Literal, Optional
 from pydantic import BaseModel, Field
 
 
-class ColumnMapping(BaseModel):
-    """Maps required logical fields to actual CSV column names."""
+class SampleColumnMapping(BaseModel):
+    """Maps labeled sample CSV columns to logical field names."""
 
     thread_id: str = "thread_id"
     created_at: str = "created_at"
@@ -64,6 +64,21 @@ class SampleRecord(BaseModel):
     confidence: float = Field(ge=0.0, le=1.0)
     evidence_spans: Optional[str] = None
     notes: Optional[str] = None
+
+
+class ReviewColumnMapping(BaseModel):
+    """Maps review CSV columns to logical field names."""
+
+    thread_id: str = "thread_id"
+    created_at: str = "created_at"
+    channel: str = "channel"
+    service: str = "service"
+    user_id_hash: str = "user_id_hash"
+    message_first: str = "message_first"
+    message_last: str = "message_last"
+    message_concat: str = "message_concat"
+    csat: str = "csat"
+    csat_comment: str = "csat_comment"
 
 
 class ReviewRecord(BaseModel):
@@ -156,4 +171,3 @@ class LabelingJobParams(BaseModel):
     use_rules: bool = True
     llm_model: str = "gpt-4o-mini"
     llm_backup_model: Optional[str] = "gpt-4.1-mini"
-
