@@ -7,9 +7,17 @@ from typing import Callable, Iterable, Mapping, Optional, TYPE_CHECKING
 import pandas as pd
 import streamlit as st
 
-from app.core import data_loader
-from app.core.config import get_settings
-from app.ui.session_manager import get_or_create_job, reset_job
+# Ensure project root is on sys.path when executed via `streamlit run app/streamlit_app.py`
+import sys
+from pathlib import Path
+
+PROJECT_ROOT = Path(__file__).resolve().parent.parent
+if str(PROJECT_ROOT) not in sys.path:
+    sys.path.insert(0, str(PROJECT_ROOT))
+
+from app.core import data_loader  # noqa: E402  (placed after sys.path fix)
+from app.core.config import get_settings  # noqa: E402
+from app.ui.session_manager import get_or_create_job, reset_job  # noqa: E402
 
 if TYPE_CHECKING:  # pragma: no cover - only used for type checking
     from streamlit.runtime.uploaded_file_manager import UploadedFile
