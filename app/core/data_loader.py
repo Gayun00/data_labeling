@@ -3,12 +3,13 @@
 from __future__ import annotations
 
 import io
-from dataclasses import dataclass
-from typing import Iterable, Mapping, Sequence
+from dataclasses import dataclass, field
+from typing import Any, Iterable, Mapping, Optional, Sequence
 
 import pandas as pd
 
 from app.core.schema import ReviewColumnMapping, SampleColumnMapping
+from app.core.preprocess import userchat_excel
 
 
 class DataValidationError(Exception):
@@ -62,6 +63,7 @@ class LoadedDataset:
 
     dataframe: pd.DataFrame
     inferred_mapping: Mapping[str, str]
+    metadata: Mapping[str, Any] = field(default_factory=dict)
 
 
 def _guess_mapping(columns: Sequence[str], field_names: Iterable[str]) -> dict[str, str]:
@@ -80,35 +82,34 @@ def _guess_mapping(columns: Sequence[str], field_names: Iterable[str]) -> dict[s
 
 def load_sample_dataset(uploaded_file) -> LoadedDataset:
     """Load a labeled sample dataset and infer column mapping."""
-    df = _load_table(uploaded_file)
+    df, metadata = _load_table(uploaded_file)
     mapping = _guess_mapping(df.columns.tolist(), SAMPLE_FIELD_LABELS.keys())
-    return LoadedDataset(dataframe=df, inferred_mapping=mapping)
+    return LoadedDataset(dataframe=df, inferred_mapping=mapping, metadata=metadata)
 
 
 def load_review_dataset(uploaded_file) -> LoadedDataset:
     """Load a review dataset and infer column mapping."""
-    df = _load_table(uploaded_file)
+    df, metadata = _load_table(uploaded_file)
     mapping = _guess_mapping(df.columns.tolist(), REVIEW_FIELD_LABELS.keys())
-    return LoadedDataset(dataframe=df, inferred_mapping=mapping)
+    return LoadedDataset(dataframe=df, inferred_mapping=mapping, metadata=metadata)
 
 
-def _load_table(uploaded_file) -> pd.DataFrame:
+def _load_table(uploaded_file) -> tuple[pd.DataFrame, dict[str, Any]]:
     """Read a Streamlit UploadedFile (CSV/XLSX) into a pandas DataFrame."""
+    name = (getattr(uploaded_file, "name", "") or "").lower()
+    if name.endswith((".xlsx", ".xls")):
+        sheets = userchat_excel.read_userchat_workbook(uploaded_file)
+        if userchat_excel.is_userchat_workbook(sheets.keys()):
+            return userchat_excel.build_userchat_table(sheets), {"source": "userchat_workbook"}
+        # Fallback: use the first sheet as-is
+        first_sheet = next(iter(sheets.values()))
+        if isinstance(first_sheet, pd.DataFrame):
+            return first_sheet, {"source": "excel_single_sheet"}
+        raise DataValidationError("엑셀에서 데이터를 읽을 수 없습니다.")
     uploaded_file.seek(0)
     buffer = io.BytesIO(uploaded_file.read())
     uploaded_file.seek(0)
-    name = (getattr(uploaded_file, "name", "") or "").lower()
-    if name.endswith((".xlsx", ".xls")):
-        try:
-            df = pd.read_excel(buffer)
-        except ImportError as exc:  # pragma: no cover - depends on optional dep
-            raise DataValidationError(
-                "엑셀 파일을 읽으려면 `openpyxl` 패키지가 필요합니다. "
-                "`pip install openpyxl`로 설치한 뒤 다시 시도해 주세요."
-            ) from exc
-    else:
-        df = pd.read_csv(buffer)
-    return df
+    return pd.read_csv(buffer), {"source": "csv"}
 
 
 def validate_mapping(mapping: Mapping[str, str], columns: Sequence[str]) -> tuple[list[str], list[str]]:

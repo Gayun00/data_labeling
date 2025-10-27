@@ -72,9 +72,11 @@ def _sync_uploaded_dataset(
     """Load uploaded CSVs and keep session state in sync."""
     validity_key = f"{section}_mapping_valid"
     file_id_key = f"{section}_file_id"
+    metadata_key = f"{section}_metadata"
     if not uploaded_file:
         _clear_dataset_state(dataset_key, mapping_key, validity_key, field_labels)
         st.session_state.pop(file_id_key, None)
+        st.session_state.pop(metadata_key, None)
         return None
 
     current_id = st.session_state.get(file_id_key)
@@ -86,10 +88,12 @@ def _sync_uploaded_dataset(
             st.error(f"{section} 데이터를 처리하는 중 오류가 발생했습니다: {exc}")
             _clear_dataset_state(dataset_key, mapping_key, validity_key, field_labels)
             st.session_state.pop(file_id_key, None)
+            st.session_state.pop(metadata_key, None)
             return None
         st.session_state[dataset_key] = loaded.dataframe
         st.session_state[mapping_key] = dict(loaded.inferred_mapping)
         st.session_state[file_id_key] = uploaded_id
+        st.session_state[metadata_key] = dict(getattr(loaded, "metadata", {}) or {})
         _reset_mapping_state(mapping_key, field_labels.keys())
     return st.session_state.get(dataset_key)
 
@@ -180,6 +184,9 @@ def main() -> None:
         field_labels=data_loader.SAMPLE_FIELD_LABELS,
     )
     if sample_df is not None:
+        sample_metadata = st.session_state.get("sample_metadata", {})
+        if sample_metadata.get("source") == "userchat_workbook":
+            st.info("ChannelTalk 다중 시트 엑셀을 감지하여 자동으로 통합했습니다.")
         st.success(f"샘플 데이터 {len(sample_df):,}건 로드 · 컬럼 {len(sample_df.columns)}개")
         _render_mapping_controls(
             title="샘플 컬럼 매핑",
@@ -205,6 +212,9 @@ def main() -> None:
         field_labels=data_loader.REVIEW_FIELD_LABELS,
     )
     if review_df is not None:
+        review_metadata = st.session_state.get("review_metadata", {})
+        if review_metadata.get("source") == "userchat_workbook":
+            st.info("ChannelTalk 다중 시트 엑셀을 감지하여 자동으로 통합했습니다.")
         st.success(f"리뷰 데이터 {len(review_df):,}건 로드 · 컬럼 {len(review_df.columns)}개")
         _render_mapping_controls(
             title="리뷰 컬럼 매핑",
