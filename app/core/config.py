@@ -18,6 +18,7 @@ class Settings(BaseModel):
     bucket: Optional[str] = Field(default=None)
     region: Optional[str] = Field(default=None)
     tmp_dir: Path = Field(default=Path("./.tmp"))
+    vector_store_path: Path = Field(default=Path("./data/chroma"))
 
     openai_api_key: Optional[str] = Field(default=None)
     embedding_model: str = Field(default="text-embedding-3-large")
@@ -55,6 +56,7 @@ def get_settings() -> Settings:
         bucket=os.getenv("BUCKET"),
         region=os.getenv("REGION"),
         tmp_dir=Path(os.getenv("TMP_DIR", "./.tmp")),
+        vector_store_path=Path(os.getenv("VECTOR_STORE_PATH", "./data/chroma")),
         openai_api_key=os.getenv("OPENAI_API_KEY"),
         embedding_model=os.getenv("EMBEDDING_MODEL", "text-embedding-3-large"),
         llm_model=os.getenv("LLM_MODEL", "gpt-4o-mini"),
@@ -65,4 +67,3 @@ def get_settings() -> Settings:
         taxonomy_version=os.getenv("TAXONOMY_VERSION", "v1"),
         prompt_version=os.getenv("PROMPT_VERSION", "v1"),
     )
-

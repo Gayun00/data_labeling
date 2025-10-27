@@ -40,6 +40,16 @@ SAMPLE_FIELD_LABELS: Mapping[str, str] = {
     "notes": "notes (비고)",
 }
 
+SAMPLE_REQUIRED_FIELDS: set[str] = {
+    "thread_id",
+    "message_concat",
+}
+
+REVIEW_REQUIRED_FIELDS: set[str] = {
+    "thread_id",
+    "message_concat",
+}
+
 REVIEW_FIELD_LABELS: Mapping[str, str] = {
     "thread_id": "thread_id (스레드 ID)",
     "created_at": "created_at (생성일)",
@@ -109,26 +119,51 @@ def _load_table(uploaded_file) -> tuple[pd.DataFrame, dict[str, Any]]:
     return pd.read_csv(buffer), {"source": "csv"}
 
 
-def validate_mapping(mapping: Mapping[str, str], columns: Sequence[str]) -> tuple[list[str], list[str]]:
-    """Check mapping completeness and uniqueness.
+@dataclass
+class MappingIssues:
+    missing_required: list[str]
+    missing_optional: list[str]
+    duplicates: list[str]
 
-    Returns (missing_fields, duplicated_columns).
-    """
-    missing = [field for field, column in mapping.items() if not column]
+
+def validate_mapping(
+    mapping: Mapping[str, str],
+    columns: Sequence[str],
+    required_fields: Optional[Iterable[str]] = None,
+) -> MappingIssues:
+    """Check mapping completeness and uniqueness, separating required and optional fields."""
+
+    required_set = set(required_fields or [])
+    missing_required: list[str] = []
+    missing_optional: list[str] = []
     seen: dict[str, str] = {}
     duplicates: list[str] = []
+
     for field, column in mapping.items():
+        column = column or ""
         if not column:
+            if field in required_set:
+                missing_required.append(field)
+            else:
+                missing_optional.append(field)
             continue
         if column not in columns:
-            missing.append(field)
+            if field in required_set:
+                missing_required.append(field)
+            else:
+                missing_optional.append(field)
             continue
         previous = seen.get(column)
         if previous and previous != field:
             duplicates.append(column)
         else:
             seen[column] = field
-    return missing, duplicates
+
+    return MappingIssues(
+        missing_required=missing_required,
+        missing_optional=missing_optional,
+        duplicates=duplicates,
+    )
 
 
 def to_sample_mapping(mapping: Mapping[str, str]) -> SampleColumnMapping:

@@ -15,8 +15,9 @@ PROJECT_ROOT = Path(__file__).resolve().parent.parent
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
-from app.core import data_loader  # noqa: E402  (placed after sys.path fix)
+from app.core import data_loader, sample_ingest  # noqa: E402  (placed after sys.path fix)
 from app.core.config import get_settings  # noqa: E402
+from app.core.exceptions import DataValidationError  # noqa: E402
 from app.ui.session_manager import get_or_create_job, reset_job  # noqa: E402
 
 if TYPE_CHECKING:  # pragma: no cover - only used for type checking
@@ -104,6 +105,7 @@ def _render_mapping_controls(
     mapping_key: str,
     validity_key: str,
     field_labels: Mapping[str, str],
+    required_fields: Iterable[str],
 ) -> None:
     """Render select boxes for mapping CSV columns to logical fields."""
     df: Optional[pd.DataFrame] = st.session_state.get(dataset_key)
@@ -131,17 +133,22 @@ def _render_mapping_controls(
             )
             updated_mapping[field] = "" if selection == PLACEHOLDER_OPTION else selection
 
-    missing, duplicates = data_loader.validate_mapping(updated_mapping, columns)
+    issues = data_loader.validate_mapping(updated_mapping, columns, required_fields=required_fields)
     st.session_state[mapping_key] = updated_mapping
-    st.session_state[validity_key] = not missing and not duplicates
+    st.session_state[validity_key] = not issues.missing_required and not issues.duplicates
 
     status_container = st.container()
-    if missing:
-        missing_labels = [field_labels[field] for field in missing if field in field_labels]
+    if issues.missing_required:
+        missing_labels = [field_labels[field] for field in issues.missing_required if field in field_labels]
         status_container.error(f"매핑되지 않은 필수 필드: {', '.join(missing_labels)}")
-    if duplicates:
-        status_container.warning(f"중복으로 선택된 컬럼: {', '.join(sorted(set(duplicates)))}")
-    if not missing and not duplicates:
+    if issues.missing_optional:
+        optional_labels = [field_labels[field] for field in issues.missing_optional if field in field_labels]
+        status_container.info(
+            "선택 컬럼이 매핑되지 않았습니다 (필수 아님): " + ", ".join(optional_labels)
+        )
+    if issues.duplicates:
+        status_container.warning(f"중복으로 선택된 컬럼: {', '.join(sorted(set(issues.duplicates)))}")
+    if not issues.missing_required and not issues.duplicates:
         status_container.success("필수 필드가 모두 매핑되었습니다.")
 
 
@@ -194,7 +201,37 @@ def main() -> None:
             mapping_key="sample_mapping",
             validity_key="sample_mapping_valid",
             field_labels=data_loader.SAMPLE_FIELD_LABELS,
+            required_fields=data_loader.SAMPLE_REQUIRED_FIELDS,
         )
+
+        sample_mapping_valid = st.session_state.get("sample_mapping_valid", False)
+        sample_message_slot = st.empty()
+        if st.button(
+            "샘플 임베딩 저장",
+            type="primary",
+            disabled=not sample_mapping_valid,
+            help="필수 필드 매핑 후 클릭하면 샘플 라벨 데이터를 임베딩으로 저장합니다.",
+        ):
+            try:
+                collection_name = f"samples_{settings.taxonomy_version}"
+                with st.spinner("샘플 임베딩을 생성하는 중입니다..."):
+                    result = sample_ingest.ingest_samples(
+                        sample_df,
+                        st.session_state.get("sample_mapping", {}),
+                        collection_name=collection_name,
+                    )
+                st.session_state["sample_embeddings_count"] = result.count
+                st.session_state["sample_embeddings_ready"] = True
+                st.session_state["sample_collection_name"] = collection_name
+                sample_message_slot.success(f"샘플 {result.count:,}건 임베딩을 저장했습니다.")
+            except DataValidationError as exc:
+                sample_message_slot.error(str(exc))
+            except Exception as exc:  # noqa: BLE001
+                sample_message_slot.error(f"샘플 임베딩 저장 중 오류가 발생했습니다: {exc}")
+        elif st.session_state.get("sample_embeddings_ready"):
+            count = st.session_state.get("sample_embeddings_count", 0)
+            if count:
+                sample_message_slot.info(f"저장된 샘플 임베딩: {count:,}건")
 
     st.header("2. 분석 대상 리뷰 업로드")
     review_file = st.file_uploader(
@@ -222,6 +259,7 @@ def main() -> None:
             mapping_key="review_mapping",
             validity_key="review_mapping_valid",
             field_labels=data_loader.REVIEW_FIELD_LABELS,
+            required_fields=data_loader.REVIEW_REQUIRED_FIELDS,
         )
 
     st.header("3. 실행")
