@@ -275,12 +275,15 @@ def main() -> None:
     elif not review_mapping_valid:
         st.warning("리뷰 필수 필드 매핑을 완료해야 실행할 수 있습니다.")
 
+    st.caption('임시로 상위 10건만 라벨링합니다 (성능 검증용).')
     if st.button("자동 라벨링 시작", type="primary", disabled=run_disabled):
         with st.spinner("LLM을 사용해 라벨링 중입니다. 잠시만 기다려 주세요..."):
             try:
                 collection_name = st.session_state.get("sample_collection_name", "")
+                # TODO: 현재는 성능 검증을 위해 상위 10건만 처리합니다. 운영 시 이 제한을 제거하세요.
+                working_df = review_df.head(10).copy()
                 results = review_classifier.classify_reviews(
-                    review_df,
+                    working_df,
                     st.session_state.get("review_mapping", {}),
                     collection_name=collection_name,
                     neighbors_k=settings.neighbors_k,
