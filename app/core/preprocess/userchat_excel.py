@@ -9,7 +9,7 @@ from typing import Iterable, Mapping, Optional
 import numpy as np
 import pandas as pd
 
-from app.core.data_loader import DataValidationError
+from app.core.exceptions import DataValidationError
 
 # Expected sheet names in the exported workbook
 USERCHAT_SHEET = "UserChat data"

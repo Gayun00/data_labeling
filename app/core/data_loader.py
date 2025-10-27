@@ -8,12 +8,9 @@ from typing import Any, Iterable, Mapping, Optional, Sequence
 
 import pandas as pd
 
+from app.core.exceptions import DataValidationError
 from app.core.schema import ReviewColumnMapping, SampleColumnMapping
 from app.core.preprocess import userchat_excel
-
-
-class DataValidationError(Exception):
-    """Raised when required columns are missing or invalid."""
 
 
 SAMPLE_FIELD_LABELS: Mapping[str, str] = {
