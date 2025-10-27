@@ -1,0 +1,22 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+
+# Environments
+.env
+.venv/
+venv/
+env/
+
+# Data
+.tmp/
+data/
+
+# Streamlit
+.streamlit/
+
+# OS
+.DS_Store
+
