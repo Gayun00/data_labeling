@@ -23,8 +23,7 @@ def build_messages(
     sample_lines: list[str] = []
     for idx, sample in enumerate(samples, start=1):
         sample_lines.append(
-            "
-".join(
+            "\n".join(
                 [
                     f"[{idx}] thread_id: {sample.get('thread_id', '')}",
                     f"요약: {sample.get('summary', '')}",
@@ -36,17 +35,14 @@ def build_messages(
             )
         )
 
-    samples_text = "
+    samples_text = "\n\n".join(sample_lines) if sample_lines else "(관련 샘플 없음)"
 
-".join(sample_lines) if sample_lines else "(관련 샘플 없음)"
-
-    review_text = (
-        f"thread_id: {review.thread_id}
-"
-        f"채널: {review.channel} / 서비스: {review.service}
-"
-        f"사용자 메세지 요약: {review.message_concat}
-"
+    review_text = "\n".join(
+        [
+            f"thread_id: {review.thread_id}",
+            f"채널: {review.channel} / 서비스: {review.service}",
+            f"사용자 메세지 요약: {review.message_concat}",
+        ]
     )
 
     example_json = (
