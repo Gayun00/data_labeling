@@ -73,6 +73,9 @@ def ingest_samples(df: pd.DataFrame, mapping: Mapping[str, str], collection_name
         metadatas.append(
             {
                 "thread_id": str(thread_id),
+                "message_concat": text,
+                "message_first": _safe_get(row, column_mapping.message_first),
+                "message_last": _safe_get(row, column_mapping.message_last),
                 "summary": _safe_get(row, column_mapping.summary),
                 "category": _safe_get(row, column_mapping.category),
                 "subtopic": _safe_get(row, column_mapping.subtopic),

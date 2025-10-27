@@ -15,7 +15,7 @@ PROJECT_ROOT = Path(__file__).resolve().parent.parent
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
-from app.core import data_loader, sample_ingest  # noqa: E402  (placed after sys.path fix)
+from app.core import data_loader, review_classifier, sample_ingest  # noqa: E402  (placed after sys.path fix)
 from app.core.config import get_settings  # noqa: E402
 from app.core.exceptions import DataValidationError  # noqa: E402
 from app.ui.session_manager import get_or_create_job, reset_job  # noqa: E402
@@ -263,11 +263,50 @@ def main() -> None:
         )
 
     st.header("3. 실행")
-    st.info("자동 라벨링 엔진은 구현 중입니다. 다음 단계에서 기능이 추가될 예정입니다.")
-    st.button("자동 라벨링 시작", disabled=True)
+    sample_ready = st.session_state.get("sample_embeddings_ready", False)
+    review_mapping_valid = st.session_state.get("review_mapping_valid", False)
+    review_df_available = review_df is not None
+    run_disabled = not (sample_ready and review_mapping_valid and review_df_available)
+
+    if not sample_ready:
+        st.warning("샘플 임베딩을 먼저 저장해야 합니다.")
+    if review_df is None:
+        st.info("리뷰 데이터를 업로드하고 매핑을 완료해 주세요.")
+    elif not review_mapping_valid:
+        st.warning("리뷰 필수 필드 매핑을 완료해야 실행할 수 있습니다.")
+
+    if st.button("자동 라벨링 시작", type="primary", disabled=run_disabled):
+        with st.spinner("LLM을 사용해 라벨링 중입니다. 잠시만 기다려 주세요..."):
+            try:
+                collection_name = st.session_state.get("sample_collection_name", "")
+                results = review_classifier.classify_reviews(
+                    review_df,
+                    st.session_state.get("review_mapping", {}),
+                    collection_name=collection_name,
+                    neighbors_k=settings.neighbors_k,
+                )
+                result_dicts = [record.model_dump() for record in results]
+                results_df = pd.DataFrame(result_dicts)
+                st.session_state["results_df"] = results_df
+                st.success(f"총 {len(results_df):,}건의 리뷰를 라벨링했습니다.")
+            except DataValidationError as exc:
+                st.error(str(exc))
+            except Exception as exc:  # noqa: BLE001
+                st.error(f"라벨링 중 오류가 발생했습니다: {exc}")
 
     st.header("4. 결과 다운로드")
-    st.warning("라벨 결과는 아직 생성되지 않습니다. 구현이 완료되면 여기에 표시됩니다.")
+    results_df = st.session_state.get("results_df")
+    if isinstance(results_df, pd.DataFrame) and not results_df.empty:
+        st.dataframe(results_df, use_container_width=True)
+        csv_bytes = results_df.to_csv(index=False).encode("utf-8-sig")
+        st.download_button(
+            "라벨 결과 CSV 다운로드",
+            data=csv_bytes,
+            file_name="label_results.csv",
+            mime="text/csv",
+        )
+    else:
+        st.info("라벨 결과가 준비되면 이곳에 표시됩니다.")
 
 
 if __name__ == "__main__":
