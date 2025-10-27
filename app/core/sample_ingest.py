@@ -6,6 +6,9 @@ from dataclasses import dataclass
 from typing import Mapping
 import pandas as pd
 
+MAX_TEXT_LENGTH = 400
+
+
 from app.core.embedding_client import EmbeddingClient
 from app.core.exceptions import DataValidationError
 from app.core.schema import SampleColumnMapping
@@ -15,6 +18,13 @@ from app.core.vector_store import VectorStore
 @dataclass
 class SampleIngestResult:
     count: int
+
+
+
+def _truncate(text: str) -> str:
+    if not text:
+        return ""
+    return text[:MAX_TEXT_LENGTH]
 
 
 def _safe_get(row: pd.Series, column: str) -> str:
@@ -57,14 +67,14 @@ def ingest_samples(df: pd.DataFrame, mapping: Mapping[str, str], collection_name
         thread_id = _safe_get(row, thread_col)
         if not thread_id:
             continue
-        text = _safe_get(row, concat_col)
+        text = _truncate(_safe_get(row, concat_col))
         if not text:
             fallback_parts = [
                 _safe_get(row, column_mapping.message_first),
                 _safe_get(row, column_mapping.message_last),
             ]
-            text = " || ".join([part for part in fallback_parts if part])
-        text = text.strip()
+            text = " || ".join([_truncate(part) for part in fallback_parts if part])
+        text = _truncate(text).strip()
         if not text:
             continue
 
@@ -74,8 +84,8 @@ def ingest_samples(df: pd.DataFrame, mapping: Mapping[str, str], collection_name
             {
                 "thread_id": str(thread_id),
                 "message_concat": text,
-                "message_first": _safe_get(row, column_mapping.message_first),
-                "message_last": _safe_get(row, column_mapping.message_last),
+                "message_first": _truncate(_safe_get(row, column_mapping.message_first)),
+                "message_last": _truncate(_safe_get(row, column_mapping.message_last)),
                 "summary": _safe_get(row, column_mapping.summary),
                 "category": _safe_get(row, column_mapping.category),
                 "subtopic": _safe_get(row, column_mapping.subtopic),
