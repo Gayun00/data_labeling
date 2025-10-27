@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from textwrap import dedent
 from typing import Any, Sequence
 
 from app.core.schema import ReviewRecord
@@ -22,7 +23,8 @@ def build_messages(
     sample_lines: list[str] = []
     for idx, sample in enumerate(samples, start=1):
         sample_lines.append(
-            "\n".join(
+            "
+".join(
                 [
                     f"[{idx}] thread_id: {sample.get('thread_id', '')}",
                     f"요약: {sample.get('summary', '')}",
@@ -34,30 +36,44 @@ def build_messages(
             )
         )
 
-    samples_text = "\n\n".join(sample_lines) if sample_lines else "(관련 샘플 없음)"
+    samples_text = "
+
+".join(sample_lines) if sample_lines else "(관련 샘플 없음)"
 
     review_text = (
-        f"thread_id: {review.thread_id}\n"
-        f"채널: {review.channel} / 서비스: {review.service}\n"
-        f"사용자 메세지 요약: {review.message_concat}\n"
+        f"thread_id: {review.thread_id}
+"
+        f"채널: {review.channel} / 서비스: {review.service}
+"
+        f"사용자 메세지 요약: {review.message_concat}
+"
     )
 
-    user_prompt = (
-        f"[taxonomy_version={taxonomy_version}, prompt_version={prompt_version}]\n"
-        "다음은 유사한 샘플과 신규 상담 스레드입니다.\n"
-        "샘플을 참고해 신규 스레드의 요약과 라벨을 JSON으로 출력하세요.\n"
-        "출력 형식 예시:\n"
-        "{""summary"": ""..."", ""category"": ""..."", ""subtopic"": ""..."", ""intent"": ""..."", ""sentiment"": ""..."", ""urgency"": ""..."", ""issue_type"": ""..."", ""language"": ""..."", ""resolution_type"": ""..."", ""next_action"": ""..."", ""spam"": false, ""confidence"": 0.85, ""evidence_spans"": ""..."", ""notes"": ""...""}"\n"
-        "confidence는 0~1 사이 실수로 제공하세요.\n"
-        "유사 샘플:\n"
-        f"{samples_text}\n\n"
-        "신규 스레드:\n"
-        f"{review_text}\n"
-        "JSON만 출력하세요."
+    example_json = (
+        '{"summary": "...", "category": "...", "subtopic": "...", "intent": "...", '
+        '"sentiment": "...", "urgency": "...", "issue_type": "...", "language": "...", '
+        '"resolution_type": "...", "next_action": "...", "spam": false, "confidence": 0.85, '
+        '"evidence_spans": "...", "notes": "..."}'
     )
+
+    user_prompt = dedent(
+        f"""
+        [taxonomy_version={taxonomy_version}, prompt_version={prompt_version}]
+        다음은 유사한 샘플과 신규 상담 스레드입니다.
+        샘플을 참고해 신규 스레드의 요약과 라벨을 JSON으로 출력하세요.
+        출력 형식 예시:
+        {example_json}
+        confidence는 0~1 사이 실수로 제공하세요.
+        유사 샘플:
+        {samples_text}
+
+        신규 스레드:
+        {review_text}
+        JSON만 출력하세요.
+        """
+    ).strip()
 
     return [
         {"role": "system", "content": system_prompt},
         {"role": "user", "content": user_prompt},
     ]
-
