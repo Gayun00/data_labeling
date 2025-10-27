@@ -99,7 +99,13 @@ def _load_table(uploaded_file) -> pd.DataFrame:
     uploaded_file.seek(0)
     name = (getattr(uploaded_file, "name", "") or "").lower()
     if name.endswith((".xlsx", ".xls")):
-        df = pd.read_excel(buffer)
+        try:
+            df = pd.read_excel(buffer)
+        except ImportError as exc:  # pragma: no cover - depends on optional dep
+            raise DataValidationError(
+                "엑셀 파일을 읽으려면 `openpyxl` 패키지가 필요합니다. "
+                "`pip install openpyxl`로 설치한 뒤 다시 시도해 주세요."
+            ) from exc
     else:
         df = pd.read_csv(buffer)
     return df
@@ -135,4 +141,3 @@ def to_sample_mapping(mapping: Mapping[str, str]) -> SampleColumnMapping:
 def to_review_mapping(mapping: Mapping[str, str]) -> ReviewColumnMapping:
     """Convert a mapping dict to a ReviewColumnMapping."""
     return ReviewColumnMapping(**mapping)
-
