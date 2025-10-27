@@ -1,4 +1,4 @@
-"""Utilities for loading and validating CSV datasets."""
+"""Utilities for loading and validating CSV/XLSX datasets."""
 
 from __future__ import annotations
 
@@ -70,7 +70,6 @@ def _guess_mapping(columns: Sequence[str], field_names: Iterable[str]) -> dict[s
     mapping: dict[str, str] = {}
     for field in field_names:
         default = field
-        chosen = None
         if default in columns:
             chosen = default
         else:
@@ -80,25 +79,29 @@ def _guess_mapping(columns: Sequence[str], field_names: Iterable[str]) -> dict[s
 
 
 def load_sample_dataset(uploaded_file) -> LoadedDataset:
-    """Load a labeled sample CSV and infer column mapping."""
-    df = _load_csv(uploaded_file)
+    """Load a labeled sample dataset and infer column mapping."""
+    df = _load_table(uploaded_file)
     mapping = _guess_mapping(df.columns.tolist(), SAMPLE_FIELD_LABELS.keys())
     return LoadedDataset(dataframe=df, inferred_mapping=mapping)
 
 
 def load_review_dataset(uploaded_file) -> LoadedDataset:
-    """Load a review CSV and infer column mapping."""
-    df = _load_csv(uploaded_file)
+    """Load a review dataset and infer column mapping."""
+    df = _load_table(uploaded_file)
     mapping = _guess_mapping(df.columns.tolist(), REVIEW_FIELD_LABELS.keys())
     return LoadedDataset(dataframe=df, inferred_mapping=mapping)
 
 
-def _load_csv(uploaded_file) -> pd.DataFrame:
-    """Read a Streamlit UploadedFile into a pandas DataFrame."""
+def _load_table(uploaded_file) -> pd.DataFrame:
+    """Read a Streamlit UploadedFile (CSV/XLSX) into a pandas DataFrame."""
     uploaded_file.seek(0)
     buffer = io.BytesIO(uploaded_file.read())
     uploaded_file.seek(0)
-    df = pd.read_csv(buffer)
+    name = (getattr(uploaded_file, "name", "") or "").lower()
+    if name.endswith((".xlsx", ".xls")):
+        df = pd.read_excel(buffer)
+    else:
+        df = pd.read_csv(buffer)
     return df
 
 
@@ -132,3 +135,4 @@ def to_sample_mapping(mapping: Mapping[str, str]) -> SampleColumnMapping:
 def to_review_mapping(mapping: Mapping[str, str]) -> ReviewColumnMapping:
     """Convert a mapping dict to a ReviewColumnMapping."""
     return ReviewColumnMapping(**mapping)
+

@@ -24,13 +24,16 @@ if TYPE_CHECKING:  # pragma: no cover - only used for type checking
 
 
 def _render_file_preview(label: str, file: Optional["UploadedFile"]) -> None:
-    """Show a small preview of an uploaded CSV."""
+    """Show a small preview of an uploaded CSV/XLSX."""
     if not file:
         st.write("파일이 업로드되면 미리보기가 표시됩니다.")
         return
     try:
         file.seek(0)
-        df = pd.read_csv(file).head(5)
+        if file.name.lower().endswith((".xlsx", ".xls")):
+            df = pd.read_excel(file).head(5)
+        else:
+            df = pd.read_csv(file).head(5)
     except Exception as exc:  # noqa: BLE001
         st.error(f"{label} 파일을 읽는 중 오류가 발생했습니다: {exc}")
         return
@@ -163,8 +166,8 @@ def main() -> None:
 
     st.header("1. 샘플 라벨 데이터 업로드")
     sample_file = st.file_uploader(
-        "라벨이 포함된 샘플 CSV 파일을 업로드하세요.",
-        type=["csv"],
+        "라벨이 포함된 샘플 CSV/XLSX 파일을 업로드하세요.",
+        type=["csv", "xlsx", "xls"],
         key="sample_upload",
     )
     _render_file_preview("샘플", sample_file)
@@ -188,8 +191,8 @@ def main() -> None:
 
     st.header("2. 분석 대상 리뷰 업로드")
     review_file = st.file_uploader(
-        "라벨링할 리뷰 CSV 파일을 업로드하세요.",
-        type=["csv"],
+        "라벨링할 리뷰 CSV/XLSX 파일을 업로드하세요.",
+        type=["csv", "xlsx", "xls"],
         key="review_upload",
     )
     _render_file_preview("리뷰", review_file)
