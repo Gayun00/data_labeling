@@ -5,7 +5,6 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Iterable, List, Tuple
 
-import numpy as np
 import pandas as pd
 from openai import OpenAI
 
