@@ -15,15 +15,25 @@ from .vector_store import VectorStore
 
 def load_samples(path: Path) -> List[SampleRecord]:
     df = pd.read_csv(path)
-    return [SampleRecord(**row._asdict()) for row in df.itertuples(index=False)]
+    records = []
+    for payload in df.fillna('').to_dict(orient='records'):
+        records.append(SampleRecord(**payload))
+    return records
 
 
-def embed_samples(samples: Iterable[SampleRecord], client: OpenAI, model: str = "text-embedding-3-small") -> Tuple[List[str], List[List[float]], List[dict]]:
+def embed_samples(samples: Iterable[SampleRecord], client: OpenAI, model: str = 'text-embedding-3-small') -> Tuple[List[str], List[List[float]], List[dict]]:
+    samples = list(samples)
+    if not samples:
+        return [], [], []
     texts = [sample.message_concat for sample in samples]
     response = client.embeddings.create(model=model, input=texts)
     vectors = [item.embedding for item in response.data]
-    ids = [sample.thread_id for sample in samples]
-    metadatas = [sample.model_dump() for sample in samples]
+    ids = []
+    metadatas = []
+    for sample in samples:
+        ids.append(sample.thread_id)
+        meta = sample.model_dump()
+        metadatas.append(meta)
     return ids, vectors, metadatas
 
 
