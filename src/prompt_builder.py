@@ -26,11 +26,8 @@ def build_prompt(conversation: ConversationRecord, samples: Iterable[Mapping[str
             f"의도: {sample.get('intent', '')} / 감정: {sample.get('sentiment', '')} / 긴급도: {sample.get('urgency', '')}",
             f"핵심 메시지: {message}",
         ]
-        samples_section.append("
-".join(parts))
-    samples_text = "
-
-".join(samples_section) if samples_section else "(샘플 없음)"
+        samples_section.append("\n".join(parts))
+    samples_text = "\n\n".join(samples_section) if samples_section else "(샘플 없음)"
 
     prompt_lines = [
         "신규 상담:",
@@ -41,8 +38,7 @@ def build_prompt(conversation: ConversationRecord, samples: Iterable[Mapping[str
         "",
         "summary, category, subtopic, intent, sentiment, urgency, issue_type, language, resolution_type, next_action, spam, confidence, evidence_spans, notes 키를 포함한 JSON으로 답변하세요.",
     ]
-    user_prompt = "
-".join(prompt_lines)
+    user_prompt = "\n".join(prompt_lines)
 
     return [
         {"role": "system", "content": "당신은 고객 상담을 분류하는 어시스턴트입니다."},
