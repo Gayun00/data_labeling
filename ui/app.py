@@ -1,5 +1,6 @@
 from pathlib import Path
 
+import pandas as pd
 import streamlit as st
 from openai import OpenAI
 
@@ -34,4 +35,6 @@ if st.button("라벨링 실행"):
             results = run_labeling(samples_path, convo_path, output_path, client, llm, store)
 
             st.success(f"총 {len(results)}건 라벨링 완료")
+            result_df = pd.read_csv(output_path)
+            st.dataframe(result_df, use_container_width=True)
             st.download_button("결과 다운로드", output_path.read_bytes(), file_name="labels.csv", mime="text/csv")
