@@ -18,31 +18,31 @@ def _truncate(text: str) -> str:
 def build_prompt(conversation: ConversationRecord, samples: Iterable[Mapping[str, str]]) -> list[dict[str, str]]:
     samples_section = []
     for idx, sample in enumerate(samples, start=1):
-        summary = _truncate(sample.get('summary', ''))
-        message = _truncate(sample.get('message_concat', ''))
+        summary = _truncate(sample.get("summary", ""))
+        message = _truncate(sample.get("message_concat", ""))
         samples_section.append(
-            f"[{idx}] 요약: {summary}
-"
-            f"카테고리: {sample.get('category', '')} / {sample.get('subtopic', '')}
-"
-            f"의도: {sample.get('intent', '')} / 감정: {sample.get('sentiment', '')} / 긴급도: {sample.get('urgency', '')}
-"
-            f"핵심 메시지: {message}"
+            "[{}] 요약: {}
+".format(idx, summary)
+            + "카테고리: {} / {}
+".format(sample.get("category", ""), sample.get("subtopic", ""))
+            + "의도: {} / 감정: {} / 긴급도: {}
+".format(sample.get("intent", ""), sample.get("sentiment", ""), sample.get("urgency", ""))
+            + "핵심 메시지: {}".format(message)
         )
     samples_text = "
 
 ".join(samples_section) if samples_section else "(샘플 없음)"
 
     user_prompt = (
-        f"신규 상담:
-{conversation.message_concat}
+        "신규 상담:
+{}
 
-"
-        f"유사 샘플:
-{samples_text}
+".format(conversation.message_concat)
+        + "유사 샘플:
+{}
 
-"
-        "summary, category, subtopic, intent, sentiment, urgency, issue_type, language, resolution_type, next_action, spam, confidence, evidence_spans, notes 키를 포함한 JSON으로 답변하세요."
+".format(samples_text)
+        + "summary, category, subtopic, intent, sentiment, urgency, issue_type, language, resolution_type, next_action, spam, confidence, evidence_spans, notes 키를 포함한 JSON으로 답변하세요."
     )
 
     return [
