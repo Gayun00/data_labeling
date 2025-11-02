@@ -1,0 +1,8 @@
+streamlit>=1.37
+pandas>=2.2
+pydantic>=2.7
+openai>=1.30
+chromadb>=0.4
+python-dotenv>=1.0
+numpy>=1.26
+scikit-learn>=1.4
