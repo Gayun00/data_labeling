@@ -59,6 +59,16 @@ def render_sample_section() -> None:
     st.subheader("1️⃣ 샘플 CSV 업로드")
     st.caption("필수 컬럼: `label_primary`, `summary` (optional: `sample_id`, `label_secondary`, `raw_text`, etc.)")
 
+    current_library: Optional[SampleLibrary] = st.session_state.get("sample_library")
+    if current_library and len(current_library):
+        st.info(
+            f"현재 저장된 샘플 {len(current_library)}건 · "
+            f"업데이트 시각 {current_library.created_at.strftime('%Y-%m-%d %H:%M:%S')}"
+        )
+        if st.button("샘플 라이브러리 비우기", type="secondary"):
+            clear_library()
+            st.experimental_rerun()
+
     uploaded_file = st.file_uploader("샘플 CSV 선택", type=["csv"], key="sample_upload")
     auto_embed = st.checkbox("업로드와 동시에 임베딩 실행", value=True)
 
@@ -171,6 +181,15 @@ def rebuild_vector_store(library: Optional[SampleLibrary]) -> None:
         embeddings = embedder.embed([record.summary_for_embedding for record in records])
         store.upsert_samples(records, embeddings)
     st.session_state["vector_store"] = store
+    st.session_state["vector_store_rehydrated"] = True
+
+
+def clear_library() -> None:
+    if SAMPLE_LIBRARY_PATH.exists():
+        SAMPLE_LIBRARY_PATH.unlink()
+    st.session_state["sample_library"] = None
+    st.session_state["sample_ingestion_result"] = None
+    st.session_state["vector_store"] = VectorStore()
     st.session_state["vector_store_rehydrated"] = True
 
 
