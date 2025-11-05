@@ -16,6 +16,7 @@ ROOT_DIR = Path(__file__).resolve().parents[1]
 if str(ROOT_DIR) not in sys.path:
     sys.path.insert(0, str(ROOT_DIR))
 
+from src.adapters.channel_talk_csv import ChannelTalkCSVAdapter
 from src.embeddings import TfidfEmbedder
 from src.models.conversation import Conversation
 from src.models.sample import SampleLibrary, SampleRecord
@@ -160,7 +161,7 @@ def render_sample_overview() -> None:
 
 def render_raw_data_section() -> None:
     st.subheader("채널톡 원본 데이터 업로드")
-    st.markdown("엑셀 또는 CSV 원본을 업로드하면 시트별 구조를 분석해 정규화 준비를 도와줍니다.")
+    st.markdown("엑셀 또는 CSV 원본을 업로드하면 시트별 구조를 분석하고 정규화된 데이터를 제공합니다.")
 
     info = st.session_state.get("raw_data_info")
 
@@ -179,6 +180,38 @@ def render_raw_data_section() -> None:
                 mime="application/octet-stream",
                 key="download_raw_file",
             )
+        normalized_records = info.get("normalized_records") or []
+        normalized_path = info.get("normalized_path")
+
+        cols = st.columns(2)
+        with cols[0]:
+            if saved_path and Path(saved_path).exists():
+                download_data = Path(saved_path).read_bytes()
+                st.download_button(
+                    "원본 파일 다운로드",
+                    data=download_data,
+                    file_name=Path(saved_path).name,
+                    mime="application/octet-stream",
+                    key="download_raw_file",
+                )
+        with cols[1]:
+            if normalized_records:
+                json_bytes = json.dumps(normalized_records, ensure_ascii=False, indent=2).encode("utf-8")
+                st.download_button(
+                    "정규화 JSON 다운로드",
+                    data=json_bytes,
+                    file_name="normalized_conversations.json",
+                    mime="application/json",
+                )
+            if normalized_path and Path(normalized_path).exists():
+                csv_bytes = Path(normalized_path).read_bytes()
+                st.download_button(
+                    "정규화 CSV 다운로드",
+                    data=csv_bytes,
+                    file_name=Path(normalized_path).name,
+                    mime="text/csv",
+                )
+
         if st.button("원본 데이터 초기화", key="raw_reset"):
             clear_raw_data()
             st.rerun()
@@ -277,6 +310,8 @@ def process_raw_upload(uploaded_file: UploadedFile, save_to_disk: bool) -> Dict[
             }
         )
 
+    normalized_records, normalized_path = normalize_conversations(dataframes)
+
     return {
         "original_name": uploaded_file.name,
         "extension": extension,
@@ -284,6 +319,8 @@ def process_raw_upload(uploaded_file: UploadedFile, save_to_disk: bool) -> Dict[
         "saved_path": str(saved_path) if saved_path else None,
         "sheet_summaries": sheet_summaries,
         "dataframes": dataframes,
+        "normalized_records": normalized_records,
+        "normalized_path": normalized_path,
     }
 
 
@@ -316,6 +353,40 @@ def clear_raw_data() -> None:
             except OSError:
                 pass
     st.session_state["raw_data_info"] = None
+
+
+def normalize_conversations(dataframes: Dict[str, pd.DataFrame]) -> tuple[list[Dict[str, Any]], Optional[str]]:
+    adapter = ChannelTalkCSVAdapter(dataframes)
+    conversations = list(adapter.conversations())
+
+    records: list[Dict[str, Any]] = []
+    for convo in conversations:
+        records.append(
+            {
+                "conversation_id": convo.id,
+                "channel_id": convo.channel_id,
+                "created_at": convo.created_at.isoformat(),
+                "closed_at": convo.closed_at.isoformat() if convo.closed_at else None,
+                "user_id": convo.participants.user.id if convo.participants.user else None,
+                "user_email": convo.participants.user.email if convo.participants.user else None,
+                "manager_ids": ",".join(manager.id for manager in convo.participants.managers),
+                "message_count": len(convo.messages),
+                "transcript": "\n".join(
+                    f"[{message.created_at.isoformat()}] {message.sender_type}: {message.text}" for message in convo.messages
+                ),
+                "meta": json.dumps(convo.meta, ensure_ascii=False),
+            }
+        )
+
+    if not records:
+        return records, None
+
+    NORMALIZED_DIR.mkdir(parents=True, exist_ok=True)
+    timestamp = datetime.utcnow().strftime("%Y%m%d_%H%M%S")
+    csv_path = NORMALIZED_DIR / f"conversations_{timestamp}.csv"
+    df = pd.DataFrame(records)
+    df.to_csv(csv_path, index=False)
+    return records, str(csv_path)
 
 
 def library_to_dataframe(library: SampleLibrary) -> pd.DataFrame:
