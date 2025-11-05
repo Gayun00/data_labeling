@@ -60,12 +60,24 @@ def make_sample_dataframes() -> dict:
     )
 
     return {
-        "UserChat": userchat,
-        "Message": message,
-        "User": user,
-        "Manager": manager,
-        "UserChatTag": tags,
+        "UserChat data": userchat,
+        "Message data": message,
+        "User dat": user,
+        "Manager data": manager,
+        "UserChatTag data": tags,
     }
+
+
+def test_alias_matching() -> None:
+    adapter = ChannelTalkCSVAdapter(
+        dataframes={
+            "user chat data": pd.DataFrame([{"id": "chat-1"}]),
+            "message data": pd.DataFrame([{"chatId": "chat-1", "plainText": "hi", "createdAt": "2024-01-01"}]),
+        }
+    )
+
+    conversations = list(adapter.conversations())
+    assert len(conversations) == 1
 
 
 def test_adapter_creates_conversation() -> None:

@@ -174,8 +174,9 @@ class ChannelTalkCSVAdapter:
         return tags
 
     def _get_dataframe(self, name: str) -> pd.DataFrame:
+        target = self._normalize(name)
         for key, df in self.dataframes.items():
-            if key.lower() == name.lower():
+            if self._normalize(key) == target:
                 return df
         return pd.DataFrame()
 
@@ -205,3 +206,7 @@ class ChannelTalkCSVAdapter:
         if isinstance(parsed, datetime):
             return parsed
         return None
+
+    @staticmethod
+    def _normalize(name: str) -> str:
+        return "".join(ch for ch in name.lower() if ch.isalnum())
