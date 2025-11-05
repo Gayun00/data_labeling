@@ -10,7 +10,7 @@ from .conversation import (
     ManagerProfile,
 )
 from .label import LabelRecord, LabelResult, SampleReference
-from .sample import SampleMatch, SampleRecord
+from .sample import SampleLibrary, SampleMatch, SampleRecord
 
 __all__ = [
     "Attachment",
@@ -23,6 +23,7 @@ __all__ = [
     "LabelRecord",
     "LabelResult",
     "SampleReference",
+    "SampleLibrary",
     "SampleMatch",
     "SampleRecord",
 ]

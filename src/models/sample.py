@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from datetime import datetime
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, Iterable, List, Optional
 
 
 @dataclass(slots=True, frozen=True)
@@ -34,3 +34,26 @@ class SampleMatch:
     snippet: Optional[str] = None
     label_secondary: List[str] = field(default_factory=list)
     meta: Dict[str, Any] = field(default_factory=dict)
+
+
+@dataclass(slots=True, frozen=True)
+class SampleLibrary:
+    """Collection of sample records keyed by id."""
+
+    records: Dict[str, SampleRecord]
+    origin: str
+    created_at: datetime
+
+    def __iter__(self) -> Iterable[SampleRecord]:
+        return iter(self.records.values())
+
+    def __len__(self) -> int:
+        return len(self.records)
+
+    def get(self, sample_id: str) -> Optional[SampleRecord]:
+        return self.records.get(sample_id)
+
+    @classmethod
+    def from_records(cls, records: Iterable[SampleRecord], origin: str) -> "SampleLibrary":
+        mapping = {record.sample_id: record for record in records}
+        return cls(records=mapping, origin=origin, created_at=datetime.utcnow())
