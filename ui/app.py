@@ -249,7 +249,7 @@ def render_raw_data_section() -> None:
                 data=download_data,
                 file_name=Path(saved_path).name,
                 mime="application/octet-stream",
-                key="download_raw_file",
+                key="download_raw_file_header",
             )
         normalized_records = info.get("normalized_records") or []
         normalized_path = info.get("normalized_path")
@@ -263,7 +263,7 @@ def render_raw_data_section() -> None:
                     data=download_data,
                     file_name=Path(saved_path).name,
                     mime="application/octet-stream",
-                    key="download_raw_file",
+                    key="download_raw_file_main",
                 )
         with cols[1]:
             if normalized_records:
@@ -273,6 +273,7 @@ def render_raw_data_section() -> None:
                     data=json_bytes,
                     file_name="normalized_conversations.json",
                     mime="application/json",
+                    key="download_normalized_json",
                 )
             if normalized_path and Path(normalized_path).exists():
                 csv_bytes = Path(normalized_path).read_bytes()
@@ -281,6 +282,7 @@ def render_raw_data_section() -> None:
                     data=csv_bytes,
                     file_name=Path(normalized_path).name,
                     mime="text/csv",
+                    key="download_normalized_csv",
                 )
 
         if st.button("원본 데이터 초기화", key="raw_reset"):
