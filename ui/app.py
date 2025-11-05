@@ -1,45 +1,147 @@
+from __future__ import annotations
+
+import json
+from dataclasses import asdict
+from datetime import datetime
 from pathlib import Path
+from typing import Optional
 
 import pandas as pd
 import streamlit as st
-from openai import OpenAI
+from streamlit.runtime.uploaded_file_manager import UploadedFile
 
-from src.llm_service import LLMService
-from src.pipeline import run_labeling
+from src.embeddings import TfidfEmbedder
+from src.models.sample import SampleLibrary, SampleRecord
+from src.samples.manager import SampleManager
 from src.vector_store import VectorStore
+
+DATA_DIR = Path("data")
+SAMPLE_UPLOAD_DIR = DATA_DIR / "samples" / "uploads"
 
 
 def main() -> None:
     st.set_page_config(page_title="Review Labeling MVP", layout="wide")
 
     st.title("📮 Review Labeling MVP")
-    st.markdown("샘플 데이터와 신규 상담 CSV를 업로드하면 LLM을 사용해 자동으로 분류합니다.")
+    st.markdown(
+        "라벨된 샘플 CSV를 업로드해 샘플 라이브러리를 구축하세요. "
+        "업로드된 샘플은 임베딩 후 벡터 스토어에 저장되어 이후 신규 문의 분류에 활용됩니다."
+    )
 
-    samples_file = st.file_uploader("샘플 CSV 업로드", type=["csv"], key="samples")
-    conversation_file = st.file_uploader("대화 CSV 업로드", type=["csv"], key="conversations")
+    init_state()
+    render_sample_section()
+    render_sample_overview()
 
-    if st.button("라벨링 실행"):
-        if not samples_file or not conversation_file:
-            st.error("샘플과 대화 CSV를 모두 업로드해야 합니다.")
-        else:
-            with st.spinner("LLM 라벨링 중..."):
-                samples_path = Path("./data/samples/uploaded_samples.csv")
-                convo_path = Path("./data/conversations/uploaded_conversations.csv")
-                output_path = Path("./data/results/output.csv")
-                samples_path.parent.mkdir(parents=True, exist_ok=True)
-                convo_path.parent.mkdir(parents=True, exist_ok=True)
-                samples_path.write_bytes(samples_file.read())
-                convo_path.write_bytes(conversation_file.read())
 
-                client = OpenAI()
-                llm = LLMService()
-                store = VectorStore()
-                results = run_labeling(samples_path, convo_path, output_path, client, llm, store)
+def init_state() -> None:
+    if "vector_store" not in st.session_state:
+        st.session_state["vector_store"] = VectorStore()
+    if "sample_library" not in st.session_state:
+        st.session_state["sample_library"] = None
+    if "sample_ingestion_result" not in st.session_state:
+        st.session_state["sample_ingestion_result"] = None
 
-                st.success(f"총 {len(results)}건 라벨링 완료")
-                result_df = pd.read_csv(output_path)
-                st.dataframe(result_df, use_container_width=True)
-                st.download_button("결과 다운로드", output_path.read_bytes(), file_name="labels.csv", mime="text/csv")
+
+def render_sample_section() -> None:
+    st.subheader("1️⃣ 샘플 CSV 업로드")
+    st.caption("필수 컬럼: `label_primary`, `summary` (optional: `sample_id`, `label_secondary`, `raw_text`, etc.)")
+
+    uploaded_file = st.file_uploader("샘플 CSV 선택", type=["csv"], key="sample_upload")
+    auto_embed = st.checkbox("업로드와 동시에 임베딩 실행", value=True)
+
+    col1, col2 = st.columns([1, 1])
+    with col1:
+        save_to_disk = st.checkbox("CSV 파일 보관", value=True)
+    with col2:
+        origin_label = st.text_input("출처 라벨", value="ui_upload", max_chars=40)
+
+    if uploaded_file and st.button("샘플 등록", type="primary"):
+        path = save_uploaded_file(uploaded_file) if save_to_disk else write_temp_file(uploaded_file)
+        try:
+            embedder = TfidfEmbedder() if auto_embed else None
+            manager = SampleManager(
+                embedder=embedder,
+                vector_store=st.session_state["vector_store"],
+            )
+            result = manager.ingest_from_csv(path, origin=origin_label, auto_embed=auto_embed)
+        except Exception as exc:  # broad to show error in UI
+            st.error(f"샘플 업로드 중 오류가 발생했습니다: {exc}")
+            return
+
+        st.session_state["sample_library"] = result.library
+        st.session_state["sample_ingestion_result"] = result
+
+        st.success(
+            f"샘플 {len(result.library)}건 로드 완료 · 임베딩 {result.embedded_count}건 · "
+            f"스킵 {result.skipped_count}건"
+        )
+        if result.errors:
+            with st.expander("처리 중 오류 상세", expanded=False):
+                for error in result.errors:
+                    st.write(f"- {error}")
+
+
+def render_sample_overview() -> None:
+    library: Optional[SampleLibrary] = st.session_state.get("sample_library")
+    result = st.session_state.get("sample_ingestion_result")
+
+    st.subheader("2️⃣ 샘플 라이브러리 현황")
+    if not library:
+        st.info("아직 업로드된 샘플이 없습니다. CSV를 업로드해 라이브러리를 초기화하세요.")
+        return
+
+    col1, col2, col3 = st.columns(3)
+    with col1:
+        st.metric("샘플 수", len(library))
+    with col2:
+        st.metric("출처", library.origin)
+    with col3:
+        st.metric("업데이트 시각", library.created_at.strftime("%Y-%m-%d %H:%M:%S"))
+
+    vector_store: VectorStore = st.session_state["vector_store"]
+    embedding_count = sum(1 for _ in vector_store.list_sample_vectors())
+    st.caption(f"임베딩 저장 수: {embedding_count}")
+
+    df = library_to_dataframe(library)
+    st.dataframe(df, use_container_width=True, hide_index=True)
+
+    if result and result.errors:
+        st.warning(f"처리 중 오류 {len(result.errors)}건이 발생했습니다. 상세 내역을 확인하세요.")
+
+
+def save_uploaded_file(uploaded_file: UploadedFile) -> Path:
+    SAMPLE_UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
+    timestamp = datetime.utcnow().strftime("%Y%m%d_%H%M%S")
+    path = SAMPLE_UPLOAD_DIR / f"samples_{timestamp}.csv"
+    path.write_bytes(uploaded_file.getbuffer())
+    return path
+
+
+def write_temp_file(uploaded_file: UploadedFile) -> Path:
+    tmp_dir = DATA_DIR / "tmp"
+    tmp_dir.mkdir(parents=True, exist_ok=True)
+    path = tmp_dir / f"upload_{datetime.utcnow().timestamp()}.csv"
+    path.write_bytes(uploaded_file.getbuffer())
+    return path
+
+
+def library_to_dataframe(library: SampleLibrary) -> pd.DataFrame:
+    rows = []
+    for record in library:
+        rows.append(sample_record_to_row(record))
+    return pd.DataFrame(rows)
+
+
+def sample_record_to_row(record: SampleRecord) -> dict:
+    data = asdict(record)
+    meta = data.pop("meta", {}) or {}
+    data["meta"] = json.dumps(meta, ensure_ascii=False) if meta else ""
+    data["created_at"] = record.created_at.strftime("%Y-%m-%d %H:%M:%S") if record.created_at else ""
+    data["label_secondary"] = ", ".join(record.label_secondary)
+    data["summary_for_embedding"] = record.summary_for_embedding[:120] + (
+        "..." if len(record.summary_for_embedding) > 120 else ""
+    )
+    return data
 
 
 if __name__ == "__main__":
