@@ -1,11 +1,12 @@
 from __future__ import annotations
 
+import io
 import json
 import sys
 from dataclasses import asdict
 from datetime import datetime
 from pathlib import Path
-from typing import Optional
+from typing import Any, Dict, Optional
 
 import pandas as pd
 import streamlit as st
@@ -16,6 +17,7 @@ if str(ROOT_DIR) not in sys.path:
     sys.path.insert(0, str(ROOT_DIR))
 
 from src.embeddings import TfidfEmbedder
+from src.models.conversation import Conversation
 from src.models.sample import SampleLibrary, SampleRecord
 from src.samples.manager import SampleManager
 from src.vector_store import VectorStore
@@ -24,20 +26,28 @@ DATA_DIR = Path("data")
 SAMPLE_DIR = DATA_DIR / "samples"
 SAMPLE_UPLOAD_DIR = SAMPLE_DIR / "uploads"
 SAMPLE_LIBRARY_PATH = SAMPLE_DIR / "library.json"
+RAW_DIR = DATA_DIR / "raw"
+NORMALIZED_DIR = DATA_DIR / "normalized"
+
+RAW_ALLOWED_EXTENSIONS = {".xlsx", ".xls", ".csv"}
 
 
 def main() -> None:
     st.set_page_config(page_title="Review Labeling MVP", layout="wide")
 
     st.title("📮 Review Labeling MVP")
-    st.markdown(
-        "라벨된 샘플 CSV를 업로드해 샘플 라이브러리를 구축하세요. "
-        "업로드된 샘플은 임베딩 후 벡터 스토어에 저장되어 이후 신규 문의 분류에 활용됩니다."
-    )
 
     init_state()
-    render_sample_section()
-    render_sample_overview()
+
+    tab1, tab2 = st.tabs(["샘플 관리", "원본 데이터 정규화"])
+
+    with tab1:
+        render_sample_intro()
+        render_sample_section()
+        render_sample_overview()
+
+    with tab2:
+        render_raw_data_section()
 
 
 def init_state() -> None:
@@ -53,6 +63,14 @@ def init_state() -> None:
         rebuild_vector_store(st.session_state.get("sample_library"))
 
     st.session_state.setdefault("sample_ingestion_result", None)
+    st.session_state.setdefault("raw_data_info", None)
+
+
+def render_sample_intro() -> None:
+    st.markdown(
+        "라벨된 샘플 CSV를 업로드해 샘플 라이브러리를 구축하세요. "
+        "업로드된 샘플은 임베딩 후 벡터 스토어에 저장되어 이후 신규 문의 분류에 활용됩니다."
+    )
 
 
 def render_sample_section() -> None:
@@ -140,6 +158,54 @@ def render_sample_overview() -> None:
         st.warning(f"처리 중 오류 {len(result.errors)}건이 발생했습니다. 상세 내역을 확인하세요.")
 
 
+def render_raw_data_section() -> None:
+    st.subheader("채널톡 원본 데이터 업로드")
+    st.markdown("엑셀 또는 CSV 원본을 업로드하면 시트별 구조를 분석해 정규화 준비를 도와줍니다.")
+
+    info = st.session_state.get("raw_data_info")
+
+    if info:
+        uploaded_at: datetime = info["uploaded_at"]
+        saved_path = info.get("saved_path")
+        st.success(
+            f"최근 업로드 파일: {info['original_name']} · 업로드 시각 {uploaded_at.strftime('%Y-%m-%d %H:%M:%S')}"
+        )
+        if saved_path and Path(saved_path).exists():
+            download_data = Path(saved_path).read_bytes()
+            st.download_button(
+                "원본 파일 다운로드",
+                data=download_data,
+                file_name=Path(saved_path).name,
+                mime="application/octet-stream",
+                key="download_raw_file",
+            )
+        if st.button("원본 데이터 초기화", key="raw_reset"):
+            clear_raw_data()
+            st.experimental_rerun()
+
+        summaries = info.get("sheet_summaries", [])
+        for summary in summaries:
+            with st.expander(f"시트: {summary['name']} ({summary['rows']}행, {summary['cols']}열)"):
+                st.dataframe(summary["preview"], use_container_width=True)
+
+    uploaded_file = st.file_uploader(
+        "채널톡 Export 파일 업로드",
+        type=["xlsx", "xls", "csv"],
+        key="raw_upload",
+    )
+    save_to_disk = st.checkbox("원본 파일 보관", value=True, key="raw_save")
+
+    if uploaded_file and st.button("원본 데이터 처리", key="process_raw"):
+        try:
+            info = process_raw_upload(uploaded_file, save_to_disk=save_to_disk)
+        except Exception as exc:  # pragma: no cover - surfaced to UI
+            st.error(f"원본 데이터 처리 중 오류가 발생했습니다: {exc}")
+        else:
+            st.session_state["raw_data_info"] = info
+            st.success("원본 데이터 처리 및 요약이 완료되었습니다.")
+            st.experimental_rerun()
+
+
 def save_uploaded_file(uploaded_file: UploadedFile) -> Path:
     SAMPLE_UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
     timestamp = datetime.utcnow().strftime("%Y%m%d_%H%M%S")
@@ -184,6 +250,51 @@ def rebuild_vector_store(library: Optional[SampleLibrary]) -> None:
     st.session_state["vector_store_rehydrated"] = True
 
 
+def process_raw_upload(uploaded_file: UploadedFile, save_to_disk: bool) -> Dict[str, Any]:
+    extension = Path(uploaded_file.name).suffix.lower()
+    if extension not in RAW_ALLOWED_EXTENSIONS:
+        raise ValueError(f"지원하지 않는 파일 확장자입니다: {extension}")
+
+    file_bytes = uploaded_file.getvalue()
+    saved_path: Optional[Path] = None
+    if save_to_disk:
+        RAW_DIR.mkdir(parents=True, exist_ok=True)
+        timestamp = datetime.utcnow().strftime("%Y%m%d_%H%M%S")
+        saved_path = RAW_DIR / f"raw_{timestamp}{extension}"
+        saved_path.write_bytes(file_bytes)
+
+    dataframes = read_raw_file(file_bytes, extension)
+
+    sheet_summaries = []
+    for name, df in dataframes.items():
+        sheet_summaries.append(
+            {
+                "name": name,
+                "rows": int(df.shape[0]),
+                "cols": int(df.shape[1]),
+                "columns": [str(col) for col in df.columns],
+                "preview": df.head(5),
+            }
+        )
+
+    return {
+        "original_name": uploaded_file.name,
+        "extension": extension,
+        "uploaded_at": datetime.utcnow(),
+        "saved_path": str(saved_path) if saved_path else None,
+        "sheet_summaries": sheet_summaries,
+        "dataframes": dataframes,
+    }
+
+
+def read_raw_file(file_bytes: bytes, extension: str) -> Dict[str, pd.DataFrame]:
+    buffer = io.BytesIO(file_bytes)
+    if extension in {".xlsx", ".xls"}:
+        return pd.read_excel(buffer, sheet_name=None)
+    buffer.seek(0)
+    return {"csv": pd.read_csv(buffer)}
+
+
 def clear_library() -> None:
     if SAMPLE_LIBRARY_PATH.exists():
         SAMPLE_LIBRARY_PATH.unlink()
@@ -191,6 +302,20 @@ def clear_library() -> None:
     st.session_state["sample_ingestion_result"] = None
     st.session_state["vector_store"] = VectorStore()
     st.session_state["vector_store_rehydrated"] = True
+
+
+def clear_raw_data() -> None:
+    info = st.session_state.get("raw_data_info")
+    if info:
+        saved_path = info.get("saved_path")
+        if saved_path:
+            path = Path(saved_path)
+            try:
+                if path.exists() and RAW_DIR.resolve() in path.resolve().parents:
+                    path.unlink()
+            except OSError:
+                pass
+    st.session_state["raw_data_info"] = None
 
 
 def library_to_dataframe(library: SampleLibrary) -> pd.DataFrame:
