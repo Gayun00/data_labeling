@@ -157,13 +157,14 @@ class LLMService:
                 f"Sample {idx+1}: label={match.label_primary}, score={match.score:.3f}, summary={summary}"
             )
         sample_text = "\n".join(sample_lines) if sample_lines else "(no reference samples)"
+
         return (
-            "You will classify a conversation.
-Possible labels: "
-            + schema_text
-            + "\nReference samples:\n"
-            + sample_text
-            + "\nConversation transcript:\n"
-            + conversation_text
-            + "\nRespond with JSON: {\"label_primary\": str, \"label_secondary\": list[str], \"confidence\": number, \"summary\": str, \"reasoning\": str, \"references\": [{\"sample_id\": str, \"label\": str, \"score\": number}]}"
+            "You will classify a conversation.\n"
+            f"Possible labels: {schema_text}\n"
+            "Reference samples:\n"
+            f"{sample_text}\n"
+            "Conversation transcript:\n"
+            f"{conversation_text}\n"
+            "Respond with JSON: {\"label_primary\": str, \"label_secondary\": list[str], \"confidence\": number, \"summary\": str, \"reasoning\": str, \"references\": [{\"sample_id\": str, \"label\": str, \"score\": number}]}"
         )
+
