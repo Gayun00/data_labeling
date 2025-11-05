@@ -6,7 +6,7 @@ import sys
 from dataclasses import asdict
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Dict, Optional
+from typing import Any, Dict, List, Optional
 
 import pandas as pd
 import streamlit as st
@@ -16,10 +16,15 @@ ROOT_DIR = Path(__file__).resolve().parents[1]
 if str(ROOT_DIR) not in sys.path:
     sys.path.insert(0, str(ROOT_DIR))
 
+from config import get_settings
 from src.adapters.channel_talk_csv import ChannelTalkCSVAdapter
 from src.embeddings import TfidfEmbedder
 from src.models.conversation import Conversation
+from src.models.label import LabelRecord
 from src.models.sample import SampleLibrary, SampleRecord
+from src.pipeline import LabelingPipeline
+from src.pipeline.labeling import LLMService
+from src.retrieval import SimilarityRetriever
 from src.samples.manager import SampleManager
 from src.vector_store import VectorStore
 
@@ -65,6 +70,7 @@ def init_state() -> None:
 
     st.session_state.setdefault("sample_ingestion_result", None)
     st.session_state.setdefault("raw_data_info", None)
+    st.session_state.setdefault("labeling_result", None)
 
 
 def render_sample_intro() -> None:
@@ -159,6 +165,71 @@ def render_sample_overview() -> None:
         st.warning(f"처리 중 오류 {len(result.errors)}건이 발생했습니다. 상세 내역을 확인하세요.")
 
 
+def render_labeling_section(info: Dict[str, Any]) -> None:
+    st.subheader("정규화 데이터 라벨링")
+
+    conversations: List[Conversation] = info.get("conversations") or []
+    library: Optional[SampleLibrary] = st.session_state.get("sample_library")
+
+    if not conversations:
+        st.info("정규화된 대화가 없습니다. 원본 데이터를 먼저 업로드하세요.")
+        return
+
+    if not library or len(library) == 0:
+        st.warning("샘플 라이브러리가 필요합니다. 먼저 샘플 CSV를 업로드하세요.")
+        return
+
+    settings = get_settings()
+    label_schema = [item.id for item in settings.labels.schema]
+
+    use_llm = st.checkbox("LLM으로 라벨 분류 실행", value=False, key="use_llm")
+
+    if st.button("정규화된 대화 라벨링 실행", type="primary", key="run_labeling"):
+        retriever = SimilarityRetriever(
+            top_k=settings.retrieval.sample_top_k,
+            min_similarity=settings.retrieval.min_similarity,
+        )
+
+        llm_service = None
+        if use_llm:
+            try:
+                llm_service = LLMService(model=settings.llm.model_name, temperature=settings.llm.temperature)
+            except Exception as exc:
+                st.error(f"LLM 서비스를 초기화할 수 없습니다: {exc}")
+                return
+
+        pipeline = LabelingPipeline(retriever, llm_service=llm_service)
+        result = pipeline.run(conversations, library, label_schema)
+        st.session_state["labeling_result"] = result
+        df = label_records_to_dataframe(result.records)
+        st.session_state["labeling_result_df"] = df
+
+        st.success(f"총 {len(result.records)}건 라벨링 완료")
+        if result.failed:
+            st.warning(f"LLM 호출 실패 {len(result.failed)}건: {', '.join(result.failed)}")
+
+    render_labeling_overview()
+
+
+def render_labeling_overview() -> None:
+    result = st.session_state.get("labeling_result")
+    df: Optional[pd.DataFrame] = st.session_state.get("labeling_result_df")
+
+    if not result or df is None:
+        return
+
+    st.subheader("라벨링 결과")
+    st.dataframe(df, use_container_width=True, hide_index=True)
+
+    csv_bytes = df.to_csv(index=False).encode("utf-8")
+    st.download_button(
+        "라벨 결과 CSV 다운로드",
+        data=csv_bytes,
+        file_name="label_results.csv",
+        mime="text/csv",
+        key="download_labels",
+    )
+
 def render_raw_data_section() -> None:
     st.subheader("채널톡 원본 데이터 업로드")
     st.markdown("엑셀 또는 CSV 원본을 업로드하면 시트별 구조를 분석하고 정규화된 데이터를 제공합니다.")
@@ -220,6 +291,9 @@ def render_raw_data_section() -> None:
         for summary in summaries:
             with st.expander(f"시트: {summary['name']} ({summary['rows']}행, {summary['cols']}열)"):
                 st.dataframe(summary["preview"], use_container_width=True)
+
+        st.divider()
+        render_labeling_section(info)
 
     uploaded_file = st.file_uploader(
         "채널톡 Export 파일 업로드",
@@ -310,7 +384,7 @@ def process_raw_upload(uploaded_file: UploadedFile, save_to_disk: bool) -> Dict[
             }
         )
 
-    normalized_records, normalized_path = normalize_conversations(dataframes)
+    conversations, normalized_records, normalized_path = normalize_conversations(dataframes)
 
     return {
         "original_name": uploaded_file.name,
@@ -319,6 +393,7 @@ def process_raw_upload(uploaded_file: UploadedFile, save_to_disk: bool) -> Dict[
         "saved_path": str(saved_path) if saved_path else None,
         "sheet_summaries": sheet_summaries,
         "dataframes": dataframes,
+        "conversations": conversations,
         "normalized_records": normalized_records,
         "normalized_path": normalized_path,
     }
@@ -355,7 +430,9 @@ def clear_raw_data() -> None:
     st.session_state["raw_data_info"] = None
 
 
-def normalize_conversations(dataframes: Dict[str, pd.DataFrame]) -> tuple[list[Dict[str, Any]], Optional[str]]:
+def normalize_conversations(
+    dataframes: Dict[str, pd.DataFrame]
+) -> tuple[list[Conversation], list[Dict[str, Any]], Optional[str]]:
     adapter = ChannelTalkCSVAdapter(dataframes)
     conversations = list(adapter.conversations())
 
@@ -379,14 +456,14 @@ def normalize_conversations(dataframes: Dict[str, pd.DataFrame]) -> tuple[list[D
         )
 
     if not records:
-        return records, None
+        return conversations, records, None
 
     NORMALIZED_DIR.mkdir(parents=True, exist_ok=True)
     timestamp = datetime.utcnow().strftime("%Y%m%d_%H%M%S")
     csv_path = NORMALIZED_DIR / f"conversations_{timestamp}.csv"
     df = pd.DataFrame(records)
     df.to_csv(csv_path, index=False)
-    return records, str(csv_path)
+    return conversations, records, str(csv_path)
 
 
 def library_to_dataframe(library: SampleLibrary) -> pd.DataFrame:
@@ -406,6 +483,25 @@ def sample_record_to_row(record: SampleRecord) -> dict:
         "..." if len(record.summary_for_embedding) > 120 else ""
     )
     return data
+
+
+def label_records_to_dataframe(records: List[LabelRecord]) -> pd.DataFrame:
+    rows = []
+    for record in records:
+        rows.append(
+            {
+                "conversation_id": record.conversation_id,
+                "label_primary": record.result.label_primary,
+                "label_secondary": ", ".join(record.result.label_secondary),
+                "confidence": record.result.confidence,
+                "references": ", ".join(
+                    f"{ref.sample_id}:{ref.label}({ref.score:.2f})" if ref.score is not None else f"{ref.sample_id}:{ref.label}"
+                    for ref in record.result.references
+                ),
+                "created_at": record.created_at.strftime("%Y-%m-%d %H:%M:%S"),
+            }
+        )
+    return pd.DataFrame(rows)
 
 
 if __name__ == "__main__":
