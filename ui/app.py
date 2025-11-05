@@ -85,7 +85,7 @@ def render_sample_section() -> None:
         )
         if st.button("샘플 라이브러리 비우기", type="secondary"):
             clear_library()
-            st.experimental_rerun()
+            st.rerun()
 
     uploaded_file = st.file_uploader("샘플 CSV 선택", type=["csv"], key="sample_upload")
     auto_embed = st.checkbox("업로드와 동시에 임베딩 실행", value=True)
@@ -181,7 +181,7 @@ def render_raw_data_section() -> None:
             )
         if st.button("원본 데이터 초기화", key="raw_reset"):
             clear_raw_data()
-            st.experimental_rerun()
+            st.rerun()
 
         summaries = info.get("sheet_summaries", [])
         for summary in summaries:
@@ -203,7 +203,7 @@ def render_raw_data_section() -> None:
         else:
             st.session_state["raw_data_info"] = info
             st.success("원본 데이터 처리 및 요약이 완료되었습니다.")
-            st.experimental_rerun()
+            st.rerun()
 
 
 def save_uploaded_file(uploaded_file: UploadedFile) -> Path:
