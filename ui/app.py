@@ -21,7 +21,9 @@ from src.samples.manager import SampleManager
 from src.vector_store import VectorStore
 
 DATA_DIR = Path("data")
-SAMPLE_UPLOAD_DIR = DATA_DIR / "samples" / "uploads"
+SAMPLE_DIR = DATA_DIR / "samples"
+SAMPLE_UPLOAD_DIR = SAMPLE_DIR / "uploads"
+SAMPLE_LIBRARY_PATH = SAMPLE_DIR / "library.json"
 
 
 def main() -> None:
@@ -41,10 +43,16 @@ def main() -> None:
 def init_state() -> None:
     if "vector_store" not in st.session_state:
         st.session_state["vector_store"] = VectorStore()
+    st.session_state.setdefault("vector_store_rehydrated", False)
+
     if "sample_library" not in st.session_state:
-        st.session_state["sample_library"] = None
-    if "sample_ingestion_result" not in st.session_state:
-        st.session_state["sample_ingestion_result"] = None
+        library = load_library_from_disk()
+        st.session_state["sample_library"] = library
+        rebuild_vector_store(library)
+    elif not st.session_state["vector_store_rehydrated"]:
+        rebuild_vector_store(st.session_state.get("sample_library"))
+
+    st.session_state.setdefault("sample_ingestion_result", None)
 
 
 def render_sample_section() -> None:
@@ -73,11 +81,19 @@ def render_sample_section() -> None:
             st.error(f"샘플 업로드 중 오류가 발생했습니다: {exc}")
             return
 
-        st.session_state["sample_library"] = result.library
+        existing_library: Optional[SampleLibrary] = st.session_state.get("sample_library")
+        merged_library = result.library
+        if existing_library:
+            merged_library = existing_library.merge(result.library)
+
+        persist_library(merged_library)
+        rebuild_vector_store(merged_library)
+
+        st.session_state["sample_library"] = merged_library
         st.session_state["sample_ingestion_result"] = result
 
         st.success(
-            f"샘플 {len(result.library)}건 로드 완료 · 임베딩 {result.embedded_count}건 · "
+            f"샘플 {len(merged_library)}건 라이브러리 저장 완료 · 임베딩 {result.embedded_count}건 · "
             f"스킵 {result.skipped_count}건"
         )
         if result.errors:
@@ -128,6 +144,34 @@ def write_temp_file(uploaded_file: UploadedFile) -> Path:
     path = tmp_dir / f"upload_{datetime.utcnow().timestamp()}.csv"
     path.write_bytes(uploaded_file.getbuffer())
     return path
+
+
+def load_library_from_disk() -> Optional[SampleLibrary]:
+    if not SAMPLE_LIBRARY_PATH.exists():
+        return None
+    try:
+        data = json.loads(SAMPLE_LIBRARY_PATH.read_text(encoding="utf-8"))
+        return SampleLibrary.from_dict(data)
+    except Exception as exc:
+        st.error(f"샘플 라이브러리를 불러오는 중 오류가 발생했습니다: {exc}")
+        return None
+
+
+def persist_library(library: SampleLibrary) -> None:
+    SAMPLE_LIBRARY_PATH.parent.mkdir(parents=True, exist_ok=True)
+    payload = json.dumps(library.to_dict(), ensure_ascii=False, indent=2)
+    SAMPLE_LIBRARY_PATH.write_text(payload, encoding="utf-8")
+
+
+def rebuild_vector_store(library: Optional[SampleLibrary]) -> None:
+    store = VectorStore()
+    if library and len(library):
+        embedder = TfidfEmbedder()
+        records = list(library)
+        embeddings = embedder.embed([record.summary_for_embedding for record in records])
+        store.upsert_samples(records, embeddings)
+    st.session_state["vector_store"] = store
+    st.session_state["vector_store_rehydrated"] = True
 
 
 def library_to_dataframe(library: SampleLibrary) -> pd.DataFrame:
