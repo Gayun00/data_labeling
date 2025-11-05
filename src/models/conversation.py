@@ -7,7 +7,7 @@ from datetime import datetime
 from typing import Any, Dict, List, Literal, Optional
 
 
-@dataclass(slots=True, frozen=True)
+@dataclass(frozen=True)
 class Attachment:
     """Lightweight attachment metadata stored alongside a message."""
 
@@ -16,7 +16,7 @@ class Attachment:
     meta: Dict[str, Any] = field(default_factory=dict)
 
 
-@dataclass(slots=True, frozen=True)
+@dataclass(frozen=True)
 class UserProfile:
     id: str
     name: Optional[str] = None
@@ -27,7 +27,7 @@ class UserProfile:
     meta: Dict[str, Any] = field(default_factory=dict)
 
 
-@dataclass(slots=True, frozen=True)
+@dataclass(frozen=True)
 class ManagerProfile:
     id: str
     name: Optional[str] = None
@@ -35,7 +35,7 @@ class ManagerProfile:
     meta: Dict[str, Any] = field(default_factory=dict)
 
 
-@dataclass(slots=True, frozen=True)
+@dataclass(frozen=True)
 class BotProfile:
     id: str
     name: Optional[str] = None
@@ -45,7 +45,7 @@ class BotProfile:
 SenderType = Literal["user", "manager", "bot", "system"]
 
 
-@dataclass(slots=True, frozen=True)
+@dataclass(frozen=True)
 class Message:
     """Single utterance inside a conversation."""
 
@@ -59,7 +59,7 @@ class Message:
     meta: Dict[str, Any] = field(default_factory=dict)
 
 
-@dataclass(slots=True, frozen=True)
+@dataclass(frozen=True)
 class Participants:
     """Grouped participant metadata for a conversation."""
 
@@ -69,7 +69,7 @@ class Participants:
     meta: Dict[str, Any] = field(default_factory=dict)
 
 
-@dataclass(slots=True, frozen=True)
+@dataclass(frozen=True)
 class Conversation:
     """Canonical representation of a ChannelTalk chat session."""
 

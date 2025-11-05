@@ -29,7 +29,7 @@ class SampleVectorStore(Protocol):
         ...
 
 
-@dataclass(slots=True)
+@dataclass
 class SampleIngestionResult:
     """Outcome of a sample ingestion run."""
 
@@ -163,10 +163,20 @@ class SampleManager:
         if value is None or self._is_missing(value):
             return None
         try:
-            parsed, _ = pd.to_datetime([value], errors="raise")
-            return parsed.to_pydatetime()[0]
+            parsed = pd.to_datetime(value, errors="raise", utc=False)
         except (ValueError, TypeError) as exc:
             raise ValueError(f"created_at 값을 datetime으로 변환할 수 없습니다: {value}") from exc
+        if isinstance(parsed, pd.Series):
+            parsed = parsed.iloc[0]
+        if hasattr(parsed, "to_pydatetime"):
+            converted = parsed.to_pydatetime()
+            if isinstance(converted, datetime):
+                return converted
+            if isinstance(converted, (list, tuple)) and converted:
+                return converted[0]
+        if isinstance(parsed, datetime):
+            return parsed
+        raise ValueError(f"created_at 값을 datetime으로 변환할 수 없습니다: {value}")
 
     @staticmethod
     def _require_str(value: Optional[object], field: str) -> str:

@@ -9,7 +9,7 @@ from uuid import uuid4
 from src.models.sample import SampleRecord
 
 
-@dataclass(slots=True, frozen=True)
+@dataclass(frozen=True)
 class SampleVectorEntry:
     sample_id: str
     embedding: List[float]

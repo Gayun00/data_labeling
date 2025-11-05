@@ -7,7 +7,7 @@ from datetime import datetime
 from typing import List, Optional
 
 
-@dataclass(slots=True, frozen=True)
+@dataclass(frozen=True)
 class SampleReference:
     """Reference to a sample used during labeling."""
 
@@ -17,7 +17,7 @@ class SampleReference:
     summary: Optional[str] = None
 
 
-@dataclass(slots=True, frozen=True)
+@dataclass(frozen=True)
 class LabelResult:
     """Structured response from the LLM labeler."""
 
@@ -29,7 +29,7 @@ class LabelResult:
     references: List[SampleReference] = field(default_factory=list)
 
 
-@dataclass(slots=True, frozen=True)
+@dataclass(frozen=True)
 class LabelRecord:
     """Persisted label outcome for a conversation."""
 

@@ -7,7 +7,7 @@ from datetime import datetime
 from typing import Any, Dict, Iterable, List, Optional
 
 
-@dataclass(slots=True, frozen=True)
+@dataclass(frozen=True)
 class SampleRecord:
     """Single human-labeled sample stored in the library."""
 
@@ -23,7 +23,7 @@ class SampleRecord:
     meta: Dict[str, Any] = field(default_factory=dict)
 
 
-@dataclass(slots=True, frozen=True)
+@dataclass(frozen=True)
 class SampleMatch:
     """Result item returned by the similarity retriever."""
 
@@ -36,7 +36,7 @@ class SampleMatch:
     meta: Dict[str, Any] = field(default_factory=dict)
 
 
-@dataclass(slots=True, frozen=True)
+@dataclass(frozen=True)
 class SampleLibrary:
     """Collection of sample records keyed by id."""
 
