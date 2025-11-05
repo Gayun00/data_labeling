@@ -16,7 +16,8 @@
 - **ChannelTalk Open API (User Chat API)**:
   - Pagination을 감싼 Adapter가 `Conversation` 리스트를 yield.
   - 필요 시 추가 엔드포인트(예: Manager detail)를 호출하거나 최초 실행 시 metadata cache 생성.
-- **External Samples**: 기존 라벨 샘플 CSV(지정된 포맷)를 통해 라벨 스키마/프로토타입을 보강.
+- **Human-Labeled Samples**: 사람이 수십 건 이상 라벨링한 샘플 CSV. 각 샘플은 리뷰 텍스트, 라벨, 근거 요약 등을 포함하도록 스키마 정의. 업로드 시 즉시 정규화·임베딩하여 `SampleLibrary`에 저장하고 버전 정보를 남긴다.
+- **External Samples**: 기존 라벨 샘플 CSV(지정된 포맷)를 통해 라벨 스키마/프로토타입을 보강(신규 샘플과 통합해 단일 라이브러리 구성).
 
 ## 4. Core Domain Model
 ```python
@@ -55,24 +56,28 @@ class Message:
           │ Source Adapter │  <─ CSV sheets / ChannelTalk API
           └───────┬───────┘
                   │ Raw events (dict)
+         ┌────────▼────────┐                     ┌──────────────────┐
+         │ ConversationFactory │  ← 데이터 정규화 & 조인         │ Sample CSV Upload │
+         └────────┬────────┘                     └────────┬────────┘
+                  │ Canonical Conversation                 │
+         ┌────────▼────────┐                    ┌─────────▼─────────┐
+         │ Preprocessing   │  ← 텍스트 정제/머지/Chunking      │ SampleLibrary       │
+         └────────┬────────┘                    └─────────┬─────────┘
+                  │ Clean text per conversation/chunk                 │ Embeddings
+         ┌────────▼────────┐                    ┌─────────▼─────────┐
+         │ ConversationEmb │  ← VectorStore 래퍼, versioned upsert    │ SimilarityRetriever │
+         └────────┬────────┘                    └─────────┬─────────┘
+                  │ Summaries / Embeddings                 │ Top-k Samples
+         ┌────────▼────────┐                    ┌─────────▼─────────┐
+         │ Prompt Builder  │  ← 신규 리뷰 + 유사 샘플 프롬프트 구성     │
+         └────────┬────────┘                    │
+                  │ Formatted Prompt             │
          ┌────────▼────────┐
-         │ ConversationFactory │  ← 데이터 정규화 & 조인
+         │ LLM Labeler     │  ← LLMService 호출
          └────────┬────────┘
-                  │ Canonical Conversation
-         ┌────────▼────────┐
-         │ Preprocessing   │  ← 텍스트 정제/머지/Chunking
-         └────────┬────────┘
-                  │ Clean text per conversation/chunk
-         ┌────────▼────────┐
-         │ Embedding Store │  ← VectorStore 래퍼, versioned upsert
-         └────────┬────────┘
-                  │ Summaries / Embeddings
-         ┌────────▼────────┐
-         │ LLM Labeler     │  ← Prompt builder + LLMService
-         └────────┬────────┘
-                  │ LabelResult
+                  │ LabelResult (with references)
         ┌─────────▼─────────┐
-        │ Output Writers     │  ← CSV/Parquet/Report
+        │ Output Writers     │  ← CSV/Parquet/Report, 샘플 참조 포함
         └────────────────────┘
 ```
 
@@ -89,17 +94,26 @@ class Message:
    - 텍스트 클렌징 (HTML 제거, 공백 정규화, 언어 감지 optional).
    - 대화 단위 long text 생성 (`conversation_text`).
    - 토큰 길이 초과 시 chunking 전략(시간 단위 또는 role turn 기반) 도입.
-4. **Embedding** (`pipeline.embed`):
+4. **Sample Library Management** (`samples.manager`):
+   - 사람이 업로드한 샘플 CSV를 `SampleRecord`로 정규화하고 validation 수행.
+   - 업로드/갱신 시 즉시 임베딩하여 `SampleLibrary` + 벡터스토어에 저장.
+   - 샘플 metadata(라벨, 근거 요약, 업로드 시간, 버전)를 함께 저장하여 추적성 확보.
+5. **Embedding** (`pipeline.embed`):
    - VectorStore 추상화 사용(현재: 로컬, 후속: Pinecone/Chroma).
    - Key: `(conversation_version, chunk_id)`; value: embedding, summary snippet, metadata.
    - 캐시 존재 시 재생성 생략.
-5. **Labeling** (`pipeline.label`):
-   - `prompt_builder`가 conversation summary/metadata를 포함한 prompt 생성.
-   - `LLMService`가 호출 → `LabelResult(labels, confidence, reasoning, summary)`.
+6. **Similarity Retrieval** (`retrieval.similarity`):
+   - 신규 대화 임베딩과 `SampleLibrary`를 비교해 Top 3~5개 유사 샘플 검색.
+   - 각 결과는 `SampleMatch(sample_id, label, score, snippet)` 형태로 반환.
+   - 검색 실패/부족 시 fallback 전략(라벨 빈도 기반 샘플) 적용.
+7. **Labeling** (`pipeline.label`):
+   - `prompt_builder`가 유사 샘플 목록 + 신규 대화 summary/metadata를 포함한 prompt 생성.
+   - `LLMService`가 호출 → `LabelResult(labels, confidence, reasoning, summary, references=[sample_ids])`.
    - 레이블 스키마/규칙 config-driven(JSON/YAML).
    - 결과는 `LabelRecord` dataclass로 표현.
-6. **Persist & Report** (`pipeline.output`):
+8. **Persist & Report** (`pipeline.output`):
    - 주 출력: `labels.csv` (`conversation_id`, `label_primary`, optional secondary labels, confidence, summary, manager, workflow, tags).
+   - 참조 샘플과 유사도 점수를 함께 기록(`reference_samples` 열).
    - 추가 출력: JSONL (detail), parquet for analytics, aggregated insight (group by label/manager/CSAT).
    - Streamlit UI에는 라벨 테이블 및 다운로드 제공.
 
@@ -116,6 +130,10 @@ class Message:
   - Adapter registry, config 읽기, ingestion orchestration.
 - `pipeline.preprocess`
   - 텍스트 정제, chunking, summary.
+- `samples.manager`
+  - 샘플 CSV ingestion, validation, deduplication, 임베딩 upsert.
+- `retrieval.similarity`
+  - 신규 대화 임베딩으로 Top-k 샘플 검색, score 계산, fallback 전략.
 - `pipeline.embed`
   - `VectorStore` 인터페이스(현재 in-memory/FAISS + file persistence).
 - `pipeline.label`
@@ -157,6 +175,11 @@ You are an assistant that classifies customer service chats.
 - CSAT: {csat_score}
 - Manager: {manager_names}
 - Conversation summary (if available): {summary}
+- Reference samples:
+  1. Label: {sample_1.label} | Score: {sample_1.score}
+     Summary: {sample_1.summary}
+     Excerpt: {sample_1.snippet}
+  2. ...
 
 [Messages]
 {formatted transcript with role + timestamp}
@@ -168,11 +191,14 @@ You are an assistant that classifies customer service chats.
 ```
 - `prompt_builder`는 label schema/format을 config에서 받아 구성.
 - 길이 제한 대비: `summary` → `messages` chunked. 필요 시 2단계 요약 (long → summary → label).
+- 샘플 수는 디폴트 3~5개로 제한하되, 모델 토큰 한계를 넘을 때 자동으로 3개로 축소.
+- 샘플을 제공하지 못하는 경우(유사도 미충족)는 시스템 메시지로 fallback 시나리오 안내.
 
 ## 10. Storage Plan
 - `data/`
   - `raw/` (optional cache of downloaded CSV/API dumps).
   - `normalized/` (`conversation_{date}.jsonl`).
+  - `samples/` (`sample_library_{version}.jsonl`, `sample_embeddings/`).
   - `embeddings/` (vector store files, e.g., `faiss_index.bin`, `meta.json`).
   - `results/labels.csv`, `results/summary.jsonl`.
 - `tmp/` 또는 `cache/`: 중간 산출물, chunked files.
@@ -187,8 +213,8 @@ You are an assistant that classifies customer service chats.
   - fatal errors raise & surfaced in UI.
 
 ## 12. Testing Strategy
-- Unit tests: adapters (schema join), preprocess, prompt builder.
-- Integration tests: pipeline end-to-end with fixture CSV.
+- Unit tests: adapters (schema join), preprocess, prompt builder, similarity retriever(Top-k consistency).
+- Integration tests: pipeline end-to-end with fixture CSV + 샘플 라이브러리.
 - Mock OpenAI for deterministic label tests.
 - Smoke test for Streamlit CLI (optional).
 
@@ -196,20 +222,23 @@ You are an assistant that classifies customer service chats.
 1. **Foundations**
    - [ ] 모델 정의(`models/conversation.py`, `models/label.py`).
    - [ ] config 구조 도입(`config/settings.yaml` + loader).
-2. **CSV Pipeline**
+2. **Sample Library**
+   - [ ] 샘플 스키마 정의(`models/sample.py`) 및 CSV ingestion / validation 구현.
+   - [ ] 샘플 임베딩 파이프라인(`samples.manager`, `vector_store`) 구축.
+3. **CSV Pipeline**
    - [ ] CSV adapter + ConversationFactory.
    - [ ] Preprocess & Label skeleton (no embedding yet).
    - [ ] Streamlit UI와 연결.
-3. **Embedding Layer**
+4. **Embedding Layer**
    - [ ] `VectorStore` 리팩터, conversation version key 적용.
-   - [ ] Embedding 기반 요약/검색.
-4. **API Adapter**
+   - [ ] 유사도 검색(`retrieval.similarity`) 구현 및 프롬프트 통합.
+5. **API Adapter**
    - [ ] ChannelTalk API client + pagination + auth.
    - [ ] Incremental fetching & caching.
-5. **Reporting / Insights**
+6. **Reporting / Insights**
    - [ ] pandas 기반 요약 리포트.
    - [ ] Streamlit에서 label 분포, CSAT 등 시각화.
-6. **Hardening**
+7. **Hardening**
    - [ ] Retry/Rate limit, error logging.
    - [ ] Integration tests & CI.
    - [ ] Prompt tuning & label schema iteration.
@@ -222,6 +251,9 @@ You are an assistant that classifies customer service chats.
 - 팀/봇 메타 활용: 라벨링에 필요한가? 인사이트 용인가?
 - Incremental run 시 기존 라벨과 diff 관리 방법? (e.g., conversation closed after update).
 - 향후 실시간 처리(웹훅) 필요 여부.
+- 샘플 수가 부족하거나 품질 편향이 있을 때 자동 경고/보완 메커니즘?
+- 유사도 점수 임계값 설정 및 사용자 조정 UI 필요 여부?
+- 샘플 업로드 버전 관리와 롤백 기능을 어디까지 제공할지?
 
 ---
 
