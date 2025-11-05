@@ -1,0 +1,24 @@
+llm:
+  model_name: "gpt-4.1-mini"
+  temperature: 0.1
+  max_tokens: 1024
+
+retrieval:
+  sample_top_k: 5
+  min_similarity: 0.25
+
+labels:
+  schema:
+    - id: "inquiry"
+      description: "일반 문의 또는 정보 요청"
+    - id: "complaint"
+      description: "불만 및 민원 사항"
+    - id: "bug"
+      description: "기술적 오류 또는 버그 신고"
+    - id: "feature_request"
+      description: "기능 개선 또는 요청"
+  allow_secondary: true
+
+pipelines:
+  prompt_template: "default"
+  max_messages_per_conversation: 500
