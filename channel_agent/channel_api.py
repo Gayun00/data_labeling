@@ -65,6 +65,10 @@ class ChannelTalkClient:
             {"id": "chat_014", "userId": "user_113", "name": "추가요청1", "description": "스크립트 제공 요청", "state": "open", "openedAt": "2024-08-06T08:00:00Z", "closedAt": None, "tags": ["제안", "스크립트"], "chatUrl": "https://open.channel.io/chats/chat_014"},
             {"id": "chat_015", "userId": "user_114", "name": "추가요청2", "description": "다크모드 필요", "state": "open", "openedAt": "2024-08-06T09:00:00Z", "closedAt": None, "tags": ["제안", "다크모드"], "chatUrl": "https://open.channel.io/chats/chat_015"},
             {"id": "chat_016", "userId": "user_115", "name": "추가요청3", "description": "모바일 최적화 제안", "state": "open", "openedAt": "2024-08-06T10:00:00Z", "closedAt": None, "tags": ["제안", "모바일"], "chatUrl": "https://open.channel.io/chats/chat_016"},
+            # 5) 긴/모호 대화 시나리오
+            {"id": "chat_020", "userId": "user_119", "name": "김도형", "description": "강사B 코스1 길이/품질 관련 고민", "state": "open", "openedAt": "2024-08-07T09:00:00Z", "closedAt": None, "tags": ["강사B", "코스1", "품질", "불만"], "chatUrl": "https://open.channel.io/chats/chat_020"},
+            {"id": "chat_021", "userId": "user_120", "name": "박지현", "description": "환불인지 기능 제안인지 모호한 요청", "state": "open", "openedAt": "2024-08-07T10:00:00Z", "closedAt": None, "tags": ["환불", "제안"], "chatUrl": "https://open.channel.io/chats/chat_021"},
+            {"id": "chat_022", "userId": "user_121", "name": "서지안", "description": "도서/강의 섞인 문의와 기능 요청", "state": "open", "openedAt": "2024-08-07T11:00:00Z", "closedAt": None, "tags": ["도서", "강의", "제안"], "chatUrl": "https://open.channel.io/chats/chat_022"},
         ]
         return {
             "userChats": mock_user_chats,
@@ -99,6 +103,9 @@ class ChannelTalkClient:
             "chat_014": {"name": "추가요청1", "description": "스크립트 제공 요청", "tags": ["제안", "스크립트"]},
             "chat_015": {"name": "추가요청2", "description": "다크모드 필요", "tags": ["제안", "다크모드"]},
             "chat_016": {"name": "추가요청3", "description": "모바일 최적화", "tags": ["제안", "모바일"]},
+            "chat_020": {"name": "김도형", "description": "강사B 코스1 길이/품질 관련 고민", "tags": ["강사B", "코스1", "품질", "불만"]},
+            "chat_021": {"name": "박지현", "description": "환불인지 기능 제안인지 모호한 요청", "tags": ["환불", "제안"]},
+            "chat_022": {"name": "서지안", "description": "도서/강의 섞인 문의와 기능 요청", "tags": ["도서", "강의", "제안"]},
         }
         base = meta_map.get(user_chat_id, {"name": "고객", "description": "문의", "tags": []})
         tag_objs = [{"id": f"tag_{i}", "name": t} for i, t in enumerate(base["tags"], start=1)]
@@ -204,6 +211,24 @@ class ChannelTalkClient:
             "chat_019": [
                 {"id": "m37", "personType": "customer", "plainText": "강사A 코스1 내용이 기대 이하라서 환불할지 고민 중이에요. 010-7777-8888로 연락 주세요.", "createdAt": "2024-08-06T14:05:00Z"},
                 {"id": "m38", "personType": "manager", "plainText": "불편 드려 죄송합니다. 환불 또는 다른 코스 추천 중 어떤 걸 도와드릴까요?", "createdAt": "2024-08-06T14:06:00Z"},
+            ],
+            "chat_020": [
+                {"id": "m39", "personType": "customer", "plainText": "강사B 코스1 듣고 있는데요, 분량이 생각보다 짧고 예제 코드 품질이 아쉽습니다. 환불까지는 아니지만 뭔가 보완이 되나요?", "createdAt": "2024-08-07T09:05:00Z"},
+                {"id": "m40", "personType": "manager", "plainText": "구체적으로 어떤 부분이 부족했는지 알려주시면 개선에 참고하겠습니다.", "createdAt": "2024-08-07T09:06:00Z"},
+                {"id": "m41", "personType": "customer", "plainText": "실습 파일이 너무 간단하고 챕터도 적어요. 추가 자료를 주시면 좋겠어요.", "createdAt": "2024-08-07T09:07:00Z"},
+                {"id": "m42", "personType": "manager", "plainText": "추가 실습 자료를 이번 주 내로 보내드리고, 필요 시 일부 환불도 가능하도록 검토하겠습니다.", "createdAt": "2024-08-07T09:08:00Z"},
+            ],
+            "chat_021": [
+                {"id": "m43", "personType": "customer", "plainText": "강의가 마음에 들긴 하는데 모바일에서 느리고, 환불할지 개선될 때까지 기다릴지 고민 중이에요.", "createdAt": "2024-08-07T10:05:00Z"},
+                {"id": "m44", "personType": "customer", "plainText": "다크모드와 오프라인 수강 기능이 있으면 환불 안 할 것 같아요. 지금은 불편해서요.", "createdAt": "2024-08-07T10:06:30Z"},
+                {"id": "m45", "personType": "manager", "plainText": "모바일 최적화와 다크모드는 로드맵에 있고, 오프라인 수강은 기술 검토 중입니다. 불편을 드려 죄송합니다.", "createdAt": "2024-08-07T10:08:00Z"},
+                {"id": "m46", "personType": "customer", "plainText": "혹시 환불 규정이 어떻게 되나요? 개선되면 다시 결제할 수도 있어요.", "createdAt": "2024-08-07T10:09:00Z"},
+            ],
+            "chat_022": [
+                {"id": "m47", "personType": "customer", "plainText": "도서와 강의 번들로 샀는데 책 배송이 늦고, 강의는 캡션이 없어서 이해가 어려워요.", "createdAt": "2024-08-07T11:05:00Z"},
+                {"id": "m48", "personType": "customer", "plainText": "반품보다는 캡션/스크립트랑 배송 일정만 확실하면 좋겠어요.", "createdAt": "2024-08-07T11:06:00Z"},
+                {"id": "m49", "personType": "manager", "plainText": "배송 일정 확인 후 공유드리고, 캡션/스크립트 제공 가능 여부도 확인하겠습니다.", "createdAt": "2024-08-07T11:07:00Z"},
+                {"id": "m50", "personType": "customer", "plainText": "필요하면 부분 환불도 가능한가요?", "createdAt": "2024-08-07T11:08:00Z"},
             ],
         }
         messages = messages_map.get(
