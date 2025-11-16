@@ -112,8 +112,10 @@ class ChannelLabelingPipeline:
             )
             result = self.agent.summarize_and_label_dialog(sample_prompt)
 
-            # 샘플 라벨을 결과에 병합하여 few-shot 일관성을 강화 (중복 제거)
-            merged_labels = list(dict.fromkeys((result.get("labels") or []) + sample_labels))
+            # 샘플 라벨이 있으면 그걸 우선(가이드라인)으로 사용, 없으면 에이전트 라벨 사용
+            merged_labels = list(dict.fromkeys(sample_labels or (result.get("labels") or [])))
+            # 라벨은 최대 2개까지만 허용
+            merged_labels = merged_labels[:2]
             for lbl in merged_labels:
                 flat_labels.append(FlatLabel(user_chat_id=chat_id, label=lbl))
 
@@ -174,26 +176,26 @@ class ChannelLabelingPipeline:
             return dialog_text, []
 
         examples: List[str] = []
-        sample_labels: List[str] = []
+        # 샘플 라벨은 Top-1만 사용하여 과다 라벨 부착 방지
+        top_labels: List[str] = results[0][0].labels or []
         for idx, (rec, score) in enumerate(results, start=1):
             label_str = "|".join(rec.labels) if rec.labels else "없음"
-            sample_labels.extend(rec.labels or [])
             examples.append(
                 f"[샘플 {idx}] 유사도:{score:.2f}\n텍스트: {rec.text}\n라벨: {label_str}"
             )
 
         few_shot_block = "\n\n".join(examples)
         guidance = (
-            "- 아래 샘플 라벨을 가능한 한 재사용하세요 (복수 라벨 허용).\n"
-            "- 샘플에 등장한 라벨 이름(예: 강사A, 코스1, 환불 등)을 그대로 유지하세요.\n"
-            "- 새 라벨이 꼭 필요할 때만 추가하되 기존과 의미가 겹치면 새로 만들지 마세요."
+            "- 아래 샘플 라벨을 가능한 한 재사용하세요 (최대 2개).\n"
+            "- 샘플에 등장한 라벨 이름(예: 강사A, 코스1, 환불 등)을 우선 고려하세요.\n"
+            "- 대화와 무관한 라벨은 넣지 말고, 새 라벨을 추가해도 총 2개를 넘기지 마세요."
         )
         return (
             f"{guidance}\n\n"
             f"{few_shot_block}\n\n"
             "[분석 대상 대화]\n"
             f"{dialog_text}"
-        ), list(dict.fromkeys(sample_labels))
+        ), list(dict.fromkeys(top_labels))
 
     def _paginate_chat_ids(self, created_from: str, created_to: str) -> List[str]:
         cursor: Optional[str] = None
