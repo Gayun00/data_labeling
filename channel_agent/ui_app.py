@@ -11,9 +11,10 @@ Run:
 
 import os
 import sys
+from ast import literal_eval
 from datetime import date, datetime, timedelta
 from pathlib import Path
-from typing import Any, Dict
+from typing import Any, Dict, Optional
 
 import pandas as pd
 import streamlit as st
@@ -156,6 +157,10 @@ def pipeline_tab():
     created_from = datetime.combine(start_date, datetime.min.time()).isoformat() + "Z"
     created_to = datetime.combine(end_date, datetime.max.time()).isoformat() + "Z"
 
+    # 세션 상태에서 최근 결과 복원
+    df: Optional[pd.DataFrame] = st.session_state.get("results_df")
+    output_path: Optional[str] = st.session_state.get("results_output_path")
+
     if st.button("파이프라인 실행", type="primary", key="run_pipeline"):
         with st.spinner("실행 중..."):
             try:
@@ -163,18 +168,93 @@ def pipeline_tab():
                 st.success(f"완료: {output_path}")
                 if os.path.exists(output_path):
                     df = pd.read_csv(output_path)
-                    st.dataframe(df, use_container_width=True)
-                    st.download_button(
-                        "CSV 다운로드",
-                        data=df.to_csv(index=False),
-                        file_name=os.path.basename(output_path),
-                        mime="text/csv",
-                        key="download_results",
-                    )
+                    st.session_state["results_df"] = df
+                    st.session_state["results_output_path"] = output_path
                 else:
                     st.warning("출력 파일을 찾을 수 없습니다.")
             except Exception as e:
                 st.error(f"실행 실패: {e}")
+
+    # 분석/다운로드를 별도 뷰로 분리 (라디오 사용: 선택 상태 유지)
+    if df is not None:
+        current_tab = st.session_state.get("active_tab", "결과 데이터")
+        tab_choice = st.radio(
+            "보기",
+            options=["결과 데이터", "라벨/태그 분석"],
+            index=0 if current_tab == "결과 데이터" else 1,
+            horizontal=True,
+            key="tab_selector",
+        )
+        st.session_state["active_tab"] = tab_choice
+
+        if tab_choice == "결과 데이터":
+            st.dataframe(df, use_container_width=True)
+            st.download_button(
+                "CSV 다운로드",
+                data=df.to_csv(index=False),
+                file_name=os.path.basename(output_path),
+                mime="text/csv",
+                key="download_results_all",
+            )
+        else:
+            st.markdown("#### 라벨/태그 필터 및 통계")
+            df["labels_list"] = df["labels"].fillna("").apply(
+                lambda x: [p for p in str(x).split("|") if p]
+            )
+
+            def parse_tags(val: Any) -> list:
+                try:
+                    obj = literal_eval(val) if isinstance(val, str) else val
+                    if isinstance(obj, dict):
+                        return [
+                            t.get("name")
+                            for t in obj.get("tags", [])
+                            if isinstance(t, dict)
+                        ]
+                except Exception:
+                    return []
+                return []
+
+            if "custom_fields" in df.columns:
+                df["tags_list"] = df["custom_fields"].apply(parse_tags)
+            else:
+                df["tags_list"] = [[] for _ in range(len(df))]
+
+            all_labels = sorted({lab for labs in df["labels_list"] for lab in labs})
+            selected_labels = st.multiselect("라벨 필터", options=all_labels, default=all_labels, key="label_filter_select")
+
+            filtered = df
+            if selected_labels:
+                filtered = df[df["labels_list"].apply(lambda labs: any(l in labs for l in selected_labels))]
+
+            st.markdown("**필터 적용 테이블**")
+            st.dataframe(filtered, use_container_width=True)
+
+            st.markdown("**라벨별 건수**")
+            label_counts_series = filtered.explode("labels_list")["labels_list"].value_counts()
+            label_counts = label_counts_series.reset_index()
+            label_counts.columns = ["label", "count"]
+            st.dataframe(label_counts, use_container_width=True)
+
+            st.markdown("**라벨 x 태그 매트릭스(있으면)**")
+            if filtered["tags_list"].apply(len).sum() > 0:
+                exploded = filtered.explode("labels_list").explode("tags_list")
+                pivot = (
+                    exploded.pivot_table(
+                        index="labels_list", columns="tags_list", aggfunc="size", fill_value=0
+                    )
+                    if not exploded.empty
+                    else pd.DataFrame()
+                )
+                st.dataframe(pivot, use_container_width=True)
+
+            st.download_button(
+                "CSV (필터 적용) 다운로드",
+                data=filtered.drop(columns=["labels_list", "tags_list"], errors="ignore").to_csv(index=False),
+                file_name=f"filtered_{os.path.basename(output_path) if output_path else 'results.csv'}",
+                mime="text/csv",
+                key="download_results_filtered",
+            )
 
 
 def main() -> None:
