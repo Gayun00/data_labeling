@@ -1,6 +1,7 @@
 import logging
+import re
 from dataclasses import dataclass
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 
 from .agent import ChannelAgent
 from .channel_api import ChannelTalkClient
@@ -17,6 +18,9 @@ from .storage import (
 from .sample_vectors import search_sample_index
 
 logger = logging.getLogger(__name__)
+
+# Known teacher names for stricter override (prevent mismatched teacher labels)
+TEACHER_NAMES: Tuple[str, ...] = ("정원규", "조유식", "김현지")
 
 
 @dataclass
@@ -114,6 +118,11 @@ class ChannelLabelingPipeline:
 
             # 샘플 라벨이 있으면 그걸 우선(가이드라인)으로 사용, 없으면 에이전트 라벨 사용
             merged_labels = list(dict.fromkeys(sample_labels or (result.get("labels") or [])))
+            # 텍스트에서 강사명을 우선 추출해 잘못된 매핑 제거 (이름만 사용)
+            teacher_labels = self._extract_teachers(dialog_text)
+            if teacher_labels:
+                merged_labels = [lbl for lbl in merged_labels if lbl not in TEACHER_NAMES and "강사" not in str(lbl)]
+                merged_labels = list(dict.fromkeys(teacher_labels + merged_labels))
             # 라벨은 최대 2개까지만 허용
             merged_labels = merged_labels[:2]
             for lbl in merged_labels:
@@ -214,3 +223,18 @@ class ChannelLabelingPipeline:
             if not has_more:
                 break
         return ids
+
+    def _extract_teachers(self, dialog_text: str) -> List[str]:
+        """Extract teacher names like '정원규', '조유식', '김현지'."""
+        found = set()
+        for name in TEACHER_NAMES:
+            if name in dialog_text:
+                found.add(name)
+        names = set()
+        names.update(re.findall(r"강사([가-힣A-Za-z0-9]{2,})", dialog_text))
+        names.update(re.findall(r"([가-힣A-Za-z0-9]{2,})강사", dialog_text))
+        for n in names:
+            n_clean = n.replace("강사", "")
+            if n_clean in TEACHER_NAMES:
+                found.add(n_clean)
+        return list(dict.fromkeys(found))

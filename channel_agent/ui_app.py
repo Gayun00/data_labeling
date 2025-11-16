@@ -119,10 +119,12 @@ class MockAgent:
         labels = []
         if "환불" in dialog_text or "refund" in txt:
             labels.append("환불")
-        if "강사b" in txt:
-            labels.append("강사B")
-        if "강사a" in txt:
-            labels.append("강사A")
+        if "조유식" in dialog_text:
+            labels.append("조유식")
+        if "정원규" in dialog_text:
+            labels.append("정원규")
+        if "김현지" in dialog_text:
+            labels.append("김현지")
         if "배송" in dialog_text:
             labels.append("배송")
         if not labels:
@@ -135,9 +137,9 @@ def pipeline_tab():
     today = date.today()
     col1, col2 = st.columns(2)
     with col1:
-        start_date = st.date_input("시작일", value=today - timedelta(days=7), key="start_date")
+        start_date = st.date_input("시작일", value=date(2024,8,1), key="start_date")
     with col2:
-        end_date = st.date_input("종료일", value=today, key="end_date")
+        end_date = st.date_input("종료일", value=date(2024,8,7), key="end_date")
 
     mock_mode = st.checkbox("모드: 목(Mock)으로 실행", value=True, key="mock_mode")
     disable_local_mask = st.checkbox("로컬 PII 마스킹 끄기", value=False, key="disable_mask")
@@ -233,43 +235,45 @@ def pipeline_tab():
                     st.error(f"쿼리 실패: {e}")
 
         elif tab_choice == "자연어 → 쿼리":
-            st.markdown("자연어 입력: 예) 2024-08-01 ~ 2024-08-07 기간동안 A강사의 문의건 중 환불 문의 비율을 보여줘")
+            st.markdown("자연어 입력: 예) 2024-08-01 ~ 2024-08-07 기간동안 조유식 강사의 문의건 중 환불 문의 비율을 보여줘")
             labels_path = Path(output_path).with_name("chat_labels.csv")
             if not labels_path.exists():
                 st.warning("chat_labels.csv를 찾을 수 없습니다.")
             else:
-                nl_text = st.text_area("자연어 요청", value="2024-08-01 ~ 2024-08-07 기간동안 A강사의 문의건 중 환불 문의 비율을 보여줘", height=100)
+                nl_text = st.text_area(
+                    "자연어 요청",
+                    value="2024-08-01 ~ 2024-08-07 기간동안 조유식 강사의 문의건 중 환불 문의 비율을 보여줘",
+                    height=100,
+                )
                 date_range = re.search(r"(20\d{2}-\d{2}-\d{2})\s*[~\-]\s*(20\d{2}-\d{2}-\d{2})", nl_text)
                 start = date_range.group(1) if date_range else "2024-08-01"
                 end = date_range.group(2) if date_range else "2024-08-07"
                 teacher_match = re.search(r"강사\s*([A-Za-z가-힣0-9]+)", nl_text) or re.search(r"([A-Za-z가-힣0-9]+)\s*강사", nl_text)
-                teacher = teacher_match.group(1) if teacher_match else "A"
-                teacher_norm = f"강사{teacher}" if not str(teacher).startswith("강사") else str(teacher)
+                teacher = teacher_match.group(1) if teacher_match else "조유식"
+                teacher_norm = teacher
+                teacher_lower = teacher_norm.lower()
 
-                teacher_like = f"%{teacher_norm.lower()}%"
-                teacher_like_alt = f"%{teacher_norm.lower().replace('강사','')}강사%"
-                sql_text = (
-                    "WITH base AS (\n"
-                    "  SELECT ch.chat_id, ch.created_at,\n"
-                    "         BOOL_OR(lower(lb.label) LIKE '%환불%') AS is_refund,\n"
-                    f"         BOOL_OR(lower(lb.label) LIKE '{teacher_like}' OR lower(lb.label) LIKE '{teacher_like_alt}') AS is_teacher\n"
-                    "  FROM chats ch\n"
-                    "  LEFT JOIN chat_labels lb ON lb.chat_id = ch.chat_id\n"
-                    f"  WHERE coalesce(try_cast(ch.created_at AS TIMESTAMP), try_cast(ch.created_at || ' 00:00:00' AS TIMESTAMP)) >= '{start} 00:00:00' \n"
-                    f"    AND coalesce(try_cast(ch.created_at AS TIMESTAMP), try_cast(ch.created_at || ' 00:00:00' AS TIMESTAMP)) <= '{end} 23:59:59'\n"
-                    "  GROUP BY ch.chat_id, ch.created_at\n"
-                    "),\n"
-                    "counts AS (\n"
-                    "  SELECT\n"
-                    "    SUM(CASE WHEN is_teacher THEN 1 ELSE 0 END) AS teacher_total,\n"
-                    "    SUM(CASE WHEN is_teacher AND is_refund THEN 1 ELSE 0 END) AS teacher_refunds\n"
-                    "  FROM base\n"
-                    ")\n"
-                    "SELECT teacher_total, teacher_refunds,\n"
-                    "  CASE WHEN teacher_total=0 THEN 0 ELSE teacher_refunds*100.0/teacher_total END AS teacher_refund_ratio\n"
-                    "FROM counts;"
-                )
-                st.code(sql_text, language="sql")
+                sql_teacher = f"""
+WITH chats_in_range AS (
+  SELECT chat_id FROM chats
+  WHERE coalesce(try_cast(created_at AS TIMESTAMP), try_cast(created_at || ' 00:00:00' AS TIMESTAMP)) >= '{start} 00:00:00'
+    AND coalesce(try_cast(created_at AS TIMESTAMP), try_cast(created_at || ' 00:00:00' AS TIMESTAMP)) <= '{end} 23:59:59'
+),
+teacher_only AS (
+  SELECT DISTINCT cl.chat_id FROM chat_labels cl
+  JOIN chats_in_range c ON c.chat_id = cl.chat_id
+  WHERE lower(cl.label) = '조유식'
+),
+teacher_refund AS (
+  SELECT DISTINCT t.chat_id FROM teacher_only t
+  JOIN chat_labels r ON r.chat_id = t.chat_id
+  WHERE lower(r.label) = '환불문의' OR lower(r.label) LIKE '%환불%'
+)
+SELECT
+  (SELECT COUNT(*) FROM teacher_only) AS teacher_chats,
+  (SELECT COUNT(*) FROM teacher_refund) AS teacher_refund_chats;
+"""
+                st.code(sql_teacher, language="sql")
                 st.caption(f"인식된 기간: {start} ~ {end} / 강사: {teacher_norm}")
 
                 import duckdb
@@ -279,7 +283,7 @@ def pipeline_tab():
                 con.register("chat_labels", df_labels)
                 con.register("chats", df_chats_q)
                 try:
-                    res = con.execute(sql_text).fetch_df()
+                    res = con.execute(sql_teacher).fetch_df()
                     st.dataframe(res, use_container_width=True)
                 except Exception as e:
                     st.error(f"쿼리 실패: {e}")
