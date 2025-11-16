@@ -69,7 +69,7 @@ class MockAgent:
         }
 
 
-def run_pipeline(mock_mode: bool, created_from: str, created_to: str) -> str:
+def run_pipeline(mock_mode: bool, created_from: str, created_to: str, disable_local_mask: bool) -> str:
     if mock_mode:
         channel_client = ChannelTalkClient(ChannelTalkConfig(access_key="mock", access_secret="mock"))
         agent = MockAgent()
@@ -80,7 +80,11 @@ def run_pipeline(mock_mode: bool, created_from: str, created_to: str) -> str:
     pipeline = ChannelLabelingPipeline(
         channel_client,
         agent,
-        PipelineConfig(output_dir=RESULTS_DIR, output_file=RESULT_FILE),
+        PipelineConfig(
+            output_dir=RESULTS_DIR,
+            output_file=RESULT_FILE,
+            disable_local_mask=disable_local_mask,
+        ),
     )
     return pipeline.run(created_from, created_to)
 
@@ -144,13 +148,18 @@ def pipeline_tab():
     mock_mode = st.checkbox("모드: 목(Mock)으로 실행 (키/네트워크 없이)", value=True, key="mock_mode")
     st.caption("실제 호출을 원하면 체크 해제 후 .env에 키 설정 및 네트워크 허용이 필요합니다.")
 
+    disable_local_mask = st.checkbox(
+        "로컬 PII 마스킹 끄기 (에이전트 가드레일 테스트용)", value=False, key="disable_mask"
+    )
+    st.caption("끄면 전화/계좌/주소가 그대로 전달되어 에이전트/가드레일이 마스킹하는지 테스트할 수 있습니다.")
+
     created_from = datetime.combine(start_date, datetime.min.time()).isoformat() + "Z"
     created_to = datetime.combine(end_date, datetime.max.time()).isoformat() + "Z"
 
     if st.button("파이프라인 실행", type="primary", key="run_pipeline"):
         with st.spinner("실행 중..."):
             try:
-                output_path = run_pipeline(mock_mode, created_from, created_to)
+                output_path = run_pipeline(mock_mode, created_from, created_to, disable_local_mask)
                 st.success(f"완료: {output_path}")
                 if os.path.exists(output_path):
                     df = pd.read_csv(output_path)

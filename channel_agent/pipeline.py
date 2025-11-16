@@ -73,7 +73,8 @@ class ChannelLabelingPipeline:
                     sender_name = "manager"
                 else:
                     sender_name = "unknown"
-            text = mask_pii(msg.get("plainText") or msg.get("message") or "")
+            raw_text = msg.get("plainText") or msg.get("message") or ""
+            text = raw_text if self.config.disable_local_mask else mask_pii(raw_text)
             merged.append(f"[{sender_name}] {text}")
         return "\n".join(merged)
 

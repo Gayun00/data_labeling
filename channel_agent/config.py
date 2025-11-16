@@ -47,4 +47,4 @@ class PipelineConfig:
     output_dir: str = os.getenv("CHANNEL_OUTPUT_DIR", "data/channel/results")
     output_file: str = "labeled_chats.csv"
     agent_instructions: Optional[str] = None
-
+    disable_local_mask: bool = False
