@@ -55,3 +55,7 @@ review-labeler-mvp/
 - [ ] 테스트 작성 및 자동화
 
 향후에는 채널톡 API 연동, 일일 배치 스케줄러, 능동 학습 등 로드맵에 따라 확장할 수 있도록 구조화되어 있습니다.
+
+## ChannelTalk 에이전트 프로토타입
+
+`channel_agent/` 폴더에 채널톡 상담을 자동 수집·마스킹·요약/라벨링하는 신규 파이프라인을 별도로 구성했습니다. `channel_agent/README.md`를 참고해 환경 변수 세팅 후 `python -m channel_agent.runner` 로 실행할 수 있습니다.

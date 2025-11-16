@@ -234,69 +234,12 @@ def render_raw_data_section() -> None:
     st.subheader("채널톡 원본 데이터 업로드")
     st.markdown("엑셀 또는 CSV 원본을 업로드하면 시트별 구조를 분석하고 정규화된 데이터를 제공합니다.")
 
-    info = st.session_state.get("raw_data_info")
+    render_raw_data_form()
+    st.divider()
+    render_raw_data_overview()
 
-    if info:
-        uploaded_at: datetime = info["uploaded_at"]
-        saved_path = info.get("saved_path")
-        st.success(
-            f"최근 업로드 파일: {info['original_name']} · 업로드 시각 {uploaded_at.strftime('%Y-%m-%d %H:%M:%S')}"
-        )
-        if saved_path and Path(saved_path).exists():
-            download_data = Path(saved_path).read_bytes()
-            st.download_button(
-                "원본 파일 다운로드",
-                data=download_data,
-                file_name=Path(saved_path).name,
-                mime="application/octet-stream",
-                key="download_raw_file_header",
-            )
-        normalized_records = info.get("normalized_records") or []
-        normalized_path = info.get("normalized_path")
 
-        cols = st.columns(2)
-        with cols[0]:
-            if saved_path and Path(saved_path).exists():
-                download_data = Path(saved_path).read_bytes()
-                st.download_button(
-                    "원본 파일 다운로드",
-                    data=download_data,
-                    file_name=Path(saved_path).name,
-                    mime="application/octet-stream",
-                    key="download_raw_file_main",
-                )
-        with cols[1]:
-            if normalized_records:
-                json_bytes = json.dumps(normalized_records, ensure_ascii=False, indent=2).encode("utf-8")
-                st.download_button(
-                    "정규화 JSON 다운로드",
-                    data=json_bytes,
-                    file_name="normalized_conversations.json",
-                    mime="application/json",
-                    key="download_normalized_json",
-                )
-            if normalized_path and Path(normalized_path).exists():
-                csv_bytes = Path(normalized_path).read_bytes()
-                st.download_button(
-                    "정규화 CSV 다운로드",
-                    data=csv_bytes,
-                    file_name=Path(normalized_path).name,
-                    mime="text/csv",
-                    key="download_normalized_csv",
-                )
-
-        if st.button("원본 데이터 초기화", key="raw_reset"):
-            clear_raw_data()
-            st.rerun()
-
-        summaries = info.get("sheet_summaries", [])
-        for summary in summaries:
-            with st.expander(f"시트: {summary['name']} ({summary['rows']}행, {summary['cols']}열)"):
-                st.dataframe(summary["preview"], use_container_width=True)
-
-        st.divider()
-        render_labeling_section(info)
-
+def render_raw_data_form() -> None:
     uploaded_file = st.file_uploader(
         "채널톡 Export 파일 업로드",
         type=["xlsx", "xls", "csv"],
@@ -304,7 +247,7 @@ def render_raw_data_section() -> None:
     )
     save_to_disk = st.checkbox("원본 파일 보관", value=True, key="raw_save")
 
-    if uploaded_file and st.button("원본 데이터 처리", key="process_raw"):
+    if uploaded_file and st.button("원본 데이터 정규화 실행", key="process_raw"):
         try:
             info = process_raw_upload(uploaded_file, save_to_disk=save_to_disk)
         except Exception as exc:  # pragma: no cover - surfaced to UI
@@ -313,6 +256,74 @@ def render_raw_data_section() -> None:
             st.session_state["raw_data_info"] = info
             st.success("원본 데이터 처리 및 요약이 완료되었습니다.")
             st.rerun()
+
+
+def render_raw_data_overview() -> None:
+    info = st.session_state.get("raw_data_info")
+    if not info:
+        st.info("아직 정규화된 데이터가 없습니다. 위에서 원본 파일을 업로드해 주세요.")
+        return
+
+    uploaded_at: datetime = info["uploaded_at"]
+    saved_path = info.get("saved_path")
+    st.success(
+        f"최근 업로드 파일: {info['original_name']} · 업로드 시각 {uploaded_at.strftime('%Y-%m-%d %H:%M:%S')}"
+    )
+    if saved_path and Path(saved_path).exists():
+        download_data = Path(saved_path).read_bytes()
+        st.download_button(
+            "원본 파일 다운로드",
+            data=download_data,
+            file_name=Path(saved_path).name,
+            mime="application/octet-stream",
+            key="download_raw_file_header",
+        )
+
+    normalized_records = info.get("normalized_records") or []
+    normalized_path = info.get("normalized_path")
+
+    cols = st.columns(2)
+    with cols[0]:
+        if saved_path and Path(saved_path).exists():
+            download_data = Path(saved_path).read_bytes()
+            st.download_button(
+                "원본 파일 다운로드",
+                data=download_data,
+                file_name=Path(saved_path).name,
+                mime="application/octet-stream",
+                key="download_raw_file_main",
+            )
+    with cols[1]:
+        if normalized_records:
+            json_bytes = json.dumps(normalized_records, ensure_ascii=False, indent=2).encode("utf-8")
+            st.download_button(
+                "정규화 JSON 다운로드",
+                data=json_bytes,
+                file_name="normalized_conversations.json",
+                mime="application/json",
+                key="download_normalized_json",
+            )
+        if normalized_path and Path(normalized_path).exists():
+            csv_bytes = Path(normalized_path).read_bytes()
+            st.download_button(
+                "정규화 CSV 다운로드",
+                data=csv_bytes,
+                file_name=Path(normalized_path).name,
+                mime="text/csv",
+                key="download_normalized_csv",
+            )
+
+    if st.button("원본 데이터 초기화", key="raw_reset"):
+        clear_raw_data()
+        st.rerun()
+
+    summaries = info.get("sheet_summaries", [])
+    for summary in summaries:
+        with st.expander(f"시트: {summary['name']} ({summary['rows']}행, {summary['cols']}열)"):
+            st.dataframe(summary["preview"], use_container_width=True)
+
+    st.divider()
+    render_labeling_section(info)
 
 
 def save_uploaded_file(uploaded_file: UploadedFile) -> Path:
@@ -360,6 +371,7 @@ def rebuild_vector_store(library: Optional[SampleLibrary]) -> None:
 
 
 def process_raw_upload(uploaded_file: UploadedFile, save_to_disk: bool) -> Dict[str, Any]:
+    print(f"[process_raw_upload] 시작 - 파일명: {uploaded_file.name}, 크기: {len(uploaded_file.getvalue())} bytes")
     extension = Path(uploaded_file.name).suffix.lower()
     if extension not in RAW_ALLOWED_EXTENSIONS:
         raise ValueError(f"지원하지 않는 파일 확장자입니다: {extension}")
@@ -371,8 +383,10 @@ def process_raw_upload(uploaded_file: UploadedFile, save_to_disk: bool) -> Dict[
         timestamp = datetime.utcnow().strftime("%Y%m%d_%H%M%S")
         saved_path = RAW_DIR / f"raw_{timestamp}{extension}"
         saved_path.write_bytes(file_bytes)
+        print(f"[process_raw_upload] 파일 저장 완료: {saved_path}")
 
     dataframes = read_raw_file(file_bytes, extension)
+    print(f"[process_raw_upload] 시트 로드 완료: {list(dataframes.keys())}")
 
     sheet_summaries = []
     for name, df in dataframes.items():
@@ -385,8 +399,15 @@ def process_raw_upload(uploaded_file: UploadedFile, save_to_disk: bool) -> Dict[
                 "preview": df.head(5),
             }
         )
+    print(
+        "[process_raw_upload] 시트 요약:",
+        ", ".join(f"{summary['name']}({summary['rows']}행)" for summary in sheet_summaries),
+    )
 
     conversations, normalized_records, normalized_path = normalize_conversations(dataframes)
+    print(
+        f"[process_raw_upload] 정규화 완료 - 대화 수: {len(conversations)}, CSV 경로: {normalized_path}"
+    )
 
     return {
         "original_name": uploaded_file.name,
