@@ -372,6 +372,12 @@ def pipeline_tab():
                 "FROM chat_labels GROUP BY label ORDER BY chats DESC LIMIT 20;"
             )
             query = st.text_area("SQL 입력", value=default_query, height=140, key="sql_input")
+            st.caption(
+                "예시: 라벨별 대화 건수를 집계합니다. "
+                "다른 예) 강사A 환불 교집합만 보기: "
+                "SELECT chat_id FROM chat_labels WHERE label='teacher:강사A' "
+                "INTERSECT SELECT chat_id FROM chat_labels WHERE label='topic:환불';"
+            )
             labels_path = Path(output_path).with_name("chat_labels.csv")
             if not labels_path.exists():
                 st.warning("chat_labels.csv를 찾을 수 없습니다. 라벨링을 한 번 실행한 뒤 사용하세요.")
@@ -380,8 +386,10 @@ def pipeline_tab():
 
                 con = duckdb.connect(database=":memory:")
                 df_labels = pd.read_csv(labels_path)
+                df_labels = df_labels.rename(columns={"user_chat_id": "chat_id"})  # 표준화
+                df_chats_q = df.rename(columns={"user_chat_id": "chat_id"})
                 con.register("chat_labels", df_labels)
-                con.register("chats", df)
+                con.register("chats", df_chats_q)
 
                 try:
                     res = con.execute(query).fetch_df()
@@ -390,10 +398,78 @@ def pipeline_tab():
                     st.error(f"쿼리 실패: {e}")
 
         elif tab_choice == "자연어 → 쿼리(준비 중)":
-            st.markdown(
-                "자연어를 SQL/피벗으로 변환하는 기능은 추후 모델 연동 시 활성화 예정입니다.\n"
-                "예: '강사A와 환불 라벨을 모두 가진 대화만 날짜별로 집계해줘' → SQL로 변환"
-            )
+            st.markdown("#### 자연어 기반 집계 (샘플 템플릿)")
+            labels_path = Path(output_path).with_name("chat_labels.csv")
+            chats_path = Path(output_path)
+            if not labels_path.exists():
+                st.warning("chat_labels.csv를 찾을 수 없습니다. 라벨링을 한 번 실행한 뒤 사용하세요.")
+            else:
+                df_labels = pd.read_csv(labels_path)
+                df_chats = df  # 이미 로드된 채팅 결과 (created_at 포함)
+
+                # 날짜 선택
+                today = date.today()
+                default_from = today - timedelta(days=7)
+                col1, col2 = st.columns(2)
+                with col1:
+                    nl_start = st.date_input("시작일", value=default_from, key="nl_start")
+                with col2:
+                    nl_end = st.date_input("종료일", value=today, key="nl_end")
+                teacher_kw = st.text_input("강사 키워드(예: 강사A)", value="강사A", key="nl_teacher")
+
+                # created_at 파싱
+                if "created_at" in df_chats.columns:
+                    df_chats["_created_at_dt"] = pd.to_datetime(df_chats["created_at"], errors="coerce")
+                else:
+                    df_chats["_created_at_dt"] = pd.NaT
+
+                mask_date = (df_chats["_created_at_dt"] >= pd.to_datetime(nl_start)) & (
+                    df_chats["_created_at_dt"] <= pd.to_datetime(nl_end) + pd.Timedelta(days=1)
+                )
+                df_chats_range = df_chats[mask_date]
+
+                # 라벨 조인
+                df_labels["_label_lower"] = df_labels["label"].str.lower()
+                df_labels["_chat_id"] = df_labels["chat_id"] if "chat_id" in df_labels.columns else df_labels["user_chat_id"]
+                df_chats_range = df_chats_range.rename(columns={"user_chat_id": "chat_id"})
+
+                # 전체/환불 집계
+                chats_in_range = set(df_chats_range["chat_id"])
+                refund_ids = set(df_labels[df_labels["_label_lower"].str.contains("환불")]["_chat_id"])
+                refund_ids = refund_ids & chats_in_range
+                teacher_ids = set(
+                    df_labels[df_labels["_label_lower"].str.contains(teacher_kw.strip().lower())]["_chat_id"]
+                ) if teacher_kw.strip() else set()
+
+                total_chats = len(chats_in_range)
+                refund_chats = len(refund_ids)
+                refund_ratio = (refund_chats / total_chats * 100) if total_chats else 0
+
+                teacher_all = len(teacher_ids & chats_in_range)
+                teacher_refund = len(refund_ids & teacher_ids)
+                teacher_ratio = (teacher_refund / teacher_all * 100) if teacher_all else 0
+
+                st.markdown("**집계 결과**")
+                st.write(
+                    {
+                        "기간 전체 문의 건수": total_chats,
+                        "기간 환불 문의 건수": refund_chats,
+                        "기간 환불 비율(%)": round(refund_ratio, 2),
+                        f"{teacher_kw} 총 문의": teacher_all,
+                        f"{teacher_kw} 환불 문의": teacher_refund,
+                        f"{teacher_kw} 환불 비율(%)": round(teacher_ratio, 2),
+                    }
+                )
+
+                # 상세 테이블
+                show_details = st.checkbox("상세 테이블 보기", value=False, key="nl_show_details")
+                if show_details:
+                    refund_table = df_chats_range[df_chats_range["chat_id"].isin(refund_ids)]
+                    st.markdown("**기간 내 환불 문의**")
+                    st.dataframe(refund_table, use_container_width=True)
+                    teacher_refund_table = df_chats_range[df_chats_range["chat_id"].isin(teacher_ids & refund_ids)]
+                    st.markdown(f"**{teacher_kw} 환불 문의**")
+                    st.dataframe(teacher_refund_table, use_container_width=True)
 
 
 def main() -> None:
