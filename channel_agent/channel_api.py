@@ -69,6 +69,8 @@ class ChannelTalkClient:
             {"id": "chat_020", "userId": "user_119", "name": "김도형", "description": "강사B 코스1 길이/품질 관련 고민", "state": "open", "openedAt": "2024-08-07T09:00:00Z", "closedAt": None, "tags": ["강사B", "코스1", "품질", "불만"], "chatUrl": "https://open.channel.io/chats/chat_020"},
             {"id": "chat_021", "userId": "user_120", "name": "박지현", "description": "환불인지 기능 제안인지 모호한 요청", "state": "open", "openedAt": "2024-08-07T10:00:00Z", "closedAt": None, "tags": ["환불", "제안"], "chatUrl": "https://open.channel.io/chats/chat_021"},
             {"id": "chat_022", "userId": "user_121", "name": "서지안", "description": "도서/강의 섞인 문의와 기능 요청", "state": "open", "openedAt": "2024-08-07T11:00:00Z", "closedAt": None, "tags": ["도서", "강의", "제안"], "chatUrl": "https://open.channel.io/chats/chat_022"},
+            # 6) 욕설/공격적 표현 포함 케이스
+            {"id": "chat_023", "userId": "user_122", "name": "공격적유저", "description": "욕설/비속어 포함 불만", "state": "open", "openedAt": "2024-08-07T12:00:00Z", "closedAt": None, "tags": ["불만", "욕설"], "chatUrl": "https://open.channel.io/chats/chat_023"},
         ]
         return {
             "userChats": mock_user_chats,
@@ -229,6 +231,11 @@ class ChannelTalkClient:
                 {"id": "m48", "personType": "customer", "plainText": "반품보다는 캡션/스크립트랑 배송 일정만 확실하면 좋겠어요.", "createdAt": "2024-08-07T11:06:00Z"},
                 {"id": "m49", "personType": "manager", "plainText": "배송 일정 확인 후 공유드리고, 캡션/스크립트 제공 가능 여부도 확인하겠습니다.", "createdAt": "2024-08-07T11:07:00Z"},
                 {"id": "m50", "personType": "customer", "plainText": "필요하면 부분 환불도 가능한가요?", "createdAt": "2024-08-07T11:08:00Z"},
+            ],
+            "chat_023": [
+                {"id": "m51", "personType": "customer", "plainText": "이거 왜 이렇게 느려요 진짜 씨발 뭐 하는 거야? 환불이나 빨리 해줘.", "createdAt": "2024-08-07T12:05:00Z"},
+                {"id": "m52", "personType": "customer", "plainText": "상담원도 전화 안 받고 개나 소나 하는 건가요?", "createdAt": "2024-08-07T12:06:00Z"},
+                {"id": "m53", "personType": "manager", "plainText": "불편을 드려 죄송합니다. 환불 규정 안내드리고 빠르게 처리하겠습니다.", "createdAt": "2024-08-07T12:07:00Z"},
             ],
         }
         messages = messages_map.get(

@@ -45,6 +45,26 @@ _CITY_GU_DONG_PATTERN = re.compile(r"[가-힣]{2,}(시|군)\s?[가-힣]{1,}구\s
 # 구 + 동만 있는 경우: 강남구 테헤란로123 5층, 기흥구 보정동
 _GU_DONG_ONLY_PATTERN = re.compile(r"[가-힣]{2,}구\s?[가-힣0-9]{1,}동")
 
+# 비속어/욕설 마스킹
+_PROFANITY_LIST = [
+    "씨발",
+    "씨바",
+    "시발",
+    "ㅅㅂ",
+    "ㅂㅅ",
+    "병신",
+    "미친놈",
+    "개새",
+    "좆",
+    "fuck",
+    "wtf",
+]
+_PROFANITY_PATTERN = re.compile("|".join(_PROFANITY_LIST), re.IGNORECASE)
+
+
+def count_profanity(text: str) -> int:
+    return len(_PROFANITY_PATTERN.findall(text or ""))
+
 
 def mask_pii(text: str) -> str:
     """
@@ -52,6 +72,7 @@ def mask_pii(text: str) -> str:
     - Phone numbers (e.g., 010-1234-5678 -> ***-****-****)
     - Bank account numbers (8~14 digits)
     - Simple address hints (region/구/도로명)
+    - Profanity/abusive language (basic list)
     """
 
     if not text:
@@ -67,4 +88,6 @@ def mask_pii(text: str) -> str:
     masked = _ROAD_PATTERN.sub("***", masked)
     for kw in _REGION_KEYWORDS:
         masked = re.sub(rf"{kw}[^\s,\.]*", "***", masked)
+    # 비속어 마스킹
+    masked = _PROFANITY_PATTERN.sub("***", masked)
     return masked

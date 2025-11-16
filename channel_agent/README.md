@@ -29,6 +29,7 @@
 - `storage.py` : 결과 저장 유틸
 - `ui_app.py` : Streamlit 기반 샘플(text, labels) 관리 UI, 날짜 범위 선택 후 라벨링 실행(목/실제 모드)
 - `sample_vectors.py` : 샘플 데이터를 임베딩해 간단한 유사도 검색용 로컬 인덱스(JSON) 생성/조회
+  - 라벨링 결과: `labeled_chats.csv`(대화별) + `chat_labels.csv`(라벨 explode) + `skipped_chats.csv`(off-topic/abuse 스킵 로그)
 
 ### 출력
 `data/channel/results/labeled_chats.csv` 에 `user_chat_id, summary, labels, emotion, created_at, custom_fields` 컬럼이 저장됩니다. labels는 `|` 로 join 되어 있습니다.

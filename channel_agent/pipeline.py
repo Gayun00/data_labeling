@@ -5,8 +5,15 @@ from typing import Any, Dict, List, Optional
 from .agent import ChannelAgent
 from .channel_api import ChannelTalkClient
 from .config import PipelineConfig
-from .pii import mask_pii
-from .storage import LabeledChat, save_results_csv
+from .pii import mask_pii, count_profanity
+from .storage import (
+    LabeledChat,
+    SkippedChat,
+    FlatLabel,
+    save_results_csv,
+    save_skipped_csv,
+    save_flat_labels_csv,
+)
 from .sample_vectors import search_sample_index
 
 logger = logging.getLogger(__name__)
@@ -79,15 +86,27 @@ class ChannelLabelingPipeline:
             merged.append(f"[{sender_name}] {text}")
         return "\n".join(merged)
 
+    def _is_off_topic(self, dialog_text: str) -> bool:
+        """Return True if dialog is abusive/off-topic (no service keywords but high profanity)."""
+        profanity_count = count_profanity(dialog_text)
+        has_service_kw = any(kw in dialog_text for kw in self.config.service_keywords)
+        return profanity_count >= self.config.abuse_threshold and not has_service_kw
+
     def run(self, created_from: str, created_to: str) -> str:
         """Run the pipeline for a date range and return the output CSV path."""
         chat_ids = self._paginate_chat_ids(created_from, created_to)
         logger.info("Collected %d chats between %s and %s", len(chat_ids), created_from, created_to)
 
         labeled_rows: List[LabeledChat] = []
+        skipped_rows: List[SkippedChat] = []
+        flat_labels: List[FlatLabel] = []
         for chat_id in chat_ids:
             bundle = self._fetch_chat_bundle(chat_id)
             dialog_text = self._merge_dialog_text(bundle.messages)
+            if self._is_off_topic(dialog_text):
+                logger.info("Skipping off-topic/abusive chat_id=%s", chat_id)
+                skipped_rows.append(SkippedChat(user_chat_id=chat_id, reason="off_topic/abuse", dialog=dialog_text))
+                continue
             sample_prompt, sample_labels = (
                 self._build_prompt_with_samples(dialog_text) if self.config.use_sample_index else (dialog_text, [])
             )
@@ -95,6 +114,8 @@ class ChannelLabelingPipeline:
 
             # 샘플 라벨을 결과에 병합하여 few-shot 일관성을 강화 (중복 제거)
             merged_labels = list(dict.fromkeys((result.get("labels") or []) + sample_labels))
+            for lbl in merged_labels:
+                flat_labels.append(FlatLabel(user_chat_id=chat_id, label=lbl))
 
             # 요약이 프롬프트 안내문을 그대로 담았을 경우 원본 대화 요약으로 대체
             summary_text = result.get("summary", "")
@@ -102,6 +123,8 @@ class ChannelLabelingPipeline:
                 summary_text = (dialog_text[:200] + "...") if len(dialog_text) > 200 else dialog_text
             if not summary_text:
                 summary_text = (dialog_text[:200] + "...") if len(dialog_text) > 200 else dialog_text
+            # LLM 출력에도 PII/비속어 마스킹 적용해 2차 보호
+            summary_text = mask_pii(summary_text)
 
             labeled_rows.append(
                 LabeledChat(
@@ -118,6 +141,20 @@ class ChannelLabelingPipeline:
             self.config.output_dir, self.config.output_file, labeled_rows
         )
         logger.info("Saved %d labeled chats to %s", len(labeled_rows), output_path)
+        if skipped_rows:
+            skipped_path = save_skipped_csv(
+                self.config.output_dir, self.config.skipped_output_file, skipped_rows
+            )
+            logger.info("Skipped %d chats to %s", len(skipped_rows), skipped_path)
+        else:
+            skipped_path = None
+        if flat_labels:
+            labels_path = save_flat_labels_csv(
+                self.config.output_dir,
+                "chat_labels.csv",
+                flat_labels,
+            )
+            logger.info("Saved flat labels to %s", labels_path)
         return output_path
 
     def _build_prompt_with_samples(self, dialog_text: str) -> (str, List[str]):

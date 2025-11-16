@@ -13,6 +13,7 @@ import os
 import sys
 from ast import literal_eval
 from datetime import date, datetime, timedelta
+from io import BytesIO
 from pathlib import Path
 from typing import Any, Dict, Optional
 
@@ -240,8 +241,8 @@ def pipeline_tab():
         current_tab = st.session_state.get("active_tab", "결과 데이터")
         tab_choice = st.radio(
             "보기",
-            options=["결과 데이터", "라벨/태그 분석"],
-            index=0 if current_tab == "결과 데이터" else 1,
+            options=["결과 데이터", "라벨/태그 분석", "SQL/쿼리(내장)", "자연어 → 쿼리(준비 중)"],
+            index=["결과 데이터", "라벨/태그 분석", "SQL/쿼리(내장)", "자연어 → 쿼리(준비 중)"].index(current_tab) if current_tab in ["결과 데이터", "라벨/태그 분석", "SQL/쿼리(내장)", "자연어 → 쿼리(준비 중)"] else 0,
             horizontal=True,
             key="tab_selector",
         )
@@ -256,7 +257,52 @@ def pipeline_tab():
                 mime="text/csv",
                 key="download_results_all",
             )
-        else:
+            # Flat labels/Skipped preview if available
+            labels_path = Path(output_path).with_name("chat_labels.csv")
+            skipped_path = Path(output_path).with_name("skipped_chats.csv")
+            col_a, col_b = st.columns(2)
+            with col_a:
+                if labels_path.exists():
+                    st.markdown("**chat_labels.csv (라벨 explode)**")
+                    df_labels = pd.read_csv(labels_path)
+                    st.dataframe(df_labels.head(200), use_container_width=True)
+                    st.download_button(
+                        "chat_labels.csv 다운로드",
+                        data=df_labels.to_csv(index=False),
+                        file_name=labels_path.name,
+                        mime="text/csv",
+                        key="download_labels",
+                    )
+            with col_b:
+                if skipped_path.exists():
+                    st.markdown("**skipped_chats.csv (off-topic/abuse)**")
+                    df_skipped = pd.read_csv(skipped_path)
+                    st.dataframe(df_skipped.head(200), use_container_width=True)
+                    st.download_button(
+                        "skipped_chats.csv 다운로드",
+                        data=df_skipped.to_csv(index=False),
+                        file_name=skipped_path.name,
+                        mime="text/csv",
+                        key="download_skipped",
+                    )
+            # 통합 Excel 다운로드 (시트 분리)
+            if labels_path.exists() or skipped_path.exists():
+                excel_buffer = BytesIO()
+                with pd.ExcelWriter(excel_buffer, engine="xlsxwriter") as writer:
+                    df.to_excel(writer, sheet_name="labeled_chats", index=False)
+                    if labels_path.exists():
+                        df_labels.to_excel(writer, sheet_name="chat_labels", index=False)
+                    if skipped_path.exists():
+                        df_skipped.to_excel(writer, sheet_name="skipped_chats", index=False)
+                excel_buffer.seek(0)
+                st.download_button(
+                    "통합 엑셀 다운로드 (시트별)",
+                    data=excel_buffer.read(),
+                    file_name="channel_labeling_results.xlsx",
+                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                    key="download_excel_combined",
+                )
+        elif tab_choice == "라벨/태그 분석":
             st.markdown("#### 라벨/태그 필터 및 통계")
             df["labels_list"] = df["labels"].fillna("").apply(
                 lambda x: [p for p in str(x).split("|") if p]
@@ -282,10 +328,14 @@ def pipeline_tab():
 
             all_labels = sorted({lab for labs in df["labels_list"] for lab in labs})
             selected_labels = st.multiselect("라벨 필터", options=all_labels, default=all_labels, key="label_filter_select")
+            filter_mode = st.radio("라벨 필터 모드", options=["합집합(OR)", "교집합(AND)"], horizontal=True, key="label_filter_mode")
 
             filtered = df
             if selected_labels:
-                filtered = df[df["labels_list"].apply(lambda labs: any(l in labs for l in selected_labels))]
+                if filter_mode == "교집합(AND)":
+                    filtered = df[df["labels_list"].apply(lambda labs: all(l in labs for l in selected_labels))]
+                else:
+                    filtered = df[df["labels_list"].apply(lambda labs: any(l in labs for l in selected_labels))]
 
             st.markdown("**필터 적용 테이블**")
             st.dataframe(filtered, use_container_width=True)
@@ -314,6 +364,35 @@ def pipeline_tab():
                 file_name=f"filtered_{os.path.basename(output_path) if output_path else 'results.csv'}",
                 mime="text/csv",
                 key="download_results_filtered",
+            )
+        elif tab_choice == "SQL/쿼리(내장)":
+            st.markdown("#### 간단 SQL 쿼리 (데모용, CSV를 메모리에 로드해 실행)")
+            default_query = (
+                "SELECT label, COUNT(DISTINCT chat_id) AS chats "
+                "FROM chat_labels GROUP BY label ORDER BY chats DESC LIMIT 20;"
+            )
+            query = st.text_area("SQL 입력", value=default_query, height=140, key="sql_input")
+            labels_path = Path(output_path).with_name("chat_labels.csv")
+            if not labels_path.exists():
+                st.warning("chat_labels.csv를 찾을 수 없습니다. 라벨링을 한 번 실행한 뒤 사용하세요.")
+            else:
+                import duckdb
+
+                con = duckdb.connect(database=":memory:")
+                df_labels = pd.read_csv(labels_path)
+                con.register("chat_labels", df_labels)
+                con.register("chats", df)
+
+                try:
+                    res = con.execute(query).fetch_df()
+                    st.dataframe(res, use_container_width=True)
+                except Exception as e:
+                    st.error(f"쿼리 실패: {e}")
+
+        elif tab_choice == "자연어 → 쿼리(준비 중)":
+            st.markdown(
+                "자연어를 SQL/피벗으로 변환하는 기능은 추후 모델 연동 시 활성화 예정입니다.\n"
+                "예: '강사A와 환불 라벨을 모두 가진 대화만 날짜별로 집계해줘' → SQL로 변환"
             )
 
 
