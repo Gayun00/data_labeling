@@ -120,7 +120,11 @@ class ChannelAgent:
         )
         return agent.id
 
-    def summarize_and_label_dialog(self, dialog_text: str, agent_id: Optional[str] = None) -> Dict[str, Any]:
+    def summarize_and_label_dialog(
+        self,
+        dialog_text: str,
+        agent_id: Optional[str] = None,
+    ) -> Dict[str, Any]:
         """Call the agent to summarize and label a single dialog."""
         if not dialog_text:
             raise ValueError("dialog_text is empty")

@@ -28,6 +28,7 @@ from channel_agent.agent import ChannelAgent
 from channel_agent.channel_api import ChannelTalkClient
 from channel_agent.config import ChannelTalkConfig, OpenAIConfig, PipelineConfig
 from channel_agent.pipeline import ChannelLabelingPipeline
+from channel_agent.sample_vectors import build_sample_index, search_sample_index, VECTORS_FILE
 
 SAMPLES_DIR = "data/channel/samples"
 SAMPLES_FILE = os.path.join(SAMPLES_DIR, "samples.csv")
@@ -70,7 +71,15 @@ class MockAgent:
         }
 
 
-def run_pipeline(mock_mode: bool, created_from: str, created_to: str, disable_local_mask: bool) -> str:
+def run_pipeline(
+    mock_mode: bool,
+    created_from: str,
+    created_to: str,
+    disable_local_mask: bool,
+    use_sample_index: bool,
+    sample_use_mock_embed: bool,
+    sample_top_k: int,
+) -> str:
     if mock_mode:
         channel_client = ChannelTalkClient(ChannelTalkConfig(access_key="mock", access_secret="mock"))
         agent = MockAgent()
@@ -85,6 +94,9 @@ def run_pipeline(mock_mode: bool, created_from: str, created_to: str, disable_lo
             output_dir=RESULTS_DIR,
             output_file=RESULT_FILE,
             disable_local_mask=disable_local_mask,
+            use_sample_index=use_sample_index,
+            sample_use_mock_embeddings=sample_use_mock_embed,
+            sample_top_k=sample_top_k,
         ),
     )
     return pipeline.run(created_from, created_to)
@@ -131,6 +143,38 @@ def samples_tab():
         editable_df.to_csv(SAMPLES_FILE, index=False)
         st.success(f"저장 완료: {SAMPLES_FILE}")
 
+    st.markdown("### 샘플 벡터 인덱스")
+    st.caption("샘플을 임베딩해 간단한 유사도 검색을 할 수 있습니다. 네트워크/키 없이 테스트하려면 모의 임베딩을 사용하세요.")
+    col_a, col_b = st.columns([2, 3])
+    with col_a:
+        use_mock_embed = st.checkbox("모의 임베딩 사용 (키/네트워크 없이)", value=True, key="use_mock_embed")
+        build_btn = st.button("인덱스 생성/갱신", type="primary", key="build_index")
+    status_placeholder = st.empty()
+
+    if build_btn:
+        with st.spinner("인덱스 생성 중..."):
+            try:
+                out = build_sample_index(use_mock_embeddings=use_mock_embed)
+                status_placeholder.success(f"인덱스 생성 완료: {out}")
+            except Exception as e:
+                status_placeholder.error(f"실패: {e}")
+
+    with col_b:
+        query = st.text_input("유사도 검색 질의", value="", key="vector_query")
+        top_k = st.slider("Top K", min_value=1, max_value=10, value=5, step=1, key="vector_topk")
+        if st.button("검색", key="search_vectors"):
+            try:
+                results = search_sample_index(query, top_k=top_k, use_mock_embeddings=use_mock_embed)
+                if not results:
+                    st.info("결과가 없습니다.")
+                else:
+                    df_res = pd.DataFrame(
+                        [{"text": r.text, "labels": "|".join(r.labels), "score": score} for r, score in results]
+                    )
+                    st.dataframe(df_res, use_container_width=True)
+            except Exception as e:
+                st.error(f"검색 실패: {e}")
+
 
 def pipeline_tab():
     st.markdown("### 채널톡 라벨링 실행")
@@ -154,6 +198,14 @@ def pipeline_tab():
     )
     st.caption("끄면 전화/계좌/주소가 그대로 전달되어 에이전트/가드레일이 마스킹하는지 테스트할 수 있습니다.")
 
+    st.markdown("#### 샘플 few-shot 설정")
+    use_sample_index = st.checkbox("샘플 인덱스를 few-shot 프롬프트로 활용", value=True, key="use_sample_index")
+    sample_use_mock_embed = st.checkbox(
+        "샘플 검색도 모의 임베딩 사용(인덱스 생성 모드와 맞춰주세요)", value=True, key="sample_use_mock_embed"
+    )
+    sample_top_k = st.slider("샘플 Top K", min_value=1, max_value=5, value=3, step=1, key="sample_top_k")
+    st.caption("샘플 인덱스가 없으면 자동으로 건너뜁니다. 샘플 탭에서 인덱스를 먼저 생성하세요.")
+
     created_from = datetime.combine(start_date, datetime.min.time()).isoformat() + "Z"
     created_to = datetime.combine(end_date, datetime.max.time()).isoformat() + "Z"
 
@@ -164,7 +216,15 @@ def pipeline_tab():
     if st.button("파이프라인 실행", type="primary", key="run_pipeline"):
         with st.spinner("실행 중..."):
             try:
-                output_path = run_pipeline(mock_mode, created_from, created_to, disable_local_mask)
+                output_path = run_pipeline(
+                    mock_mode,
+                    created_from,
+                    created_to,
+                    disable_local_mask,
+                    use_sample_index,
+                    sample_use_mock_embed,
+                    sample_top_k,
+                )
                 st.success(f"완료: {output_path}")
                 if os.path.exists(output_path):
                     df = pd.read_csv(output_path)

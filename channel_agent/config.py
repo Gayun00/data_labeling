@@ -48,3 +48,8 @@ class PipelineConfig:
     output_file: str = "labeled_chats.csv"
     agent_instructions: Optional[str] = None
     disable_local_mask: bool = False
+    # Few-shot 샘플 검색/포함 옵션
+    use_sample_index: bool = False
+    sample_top_k: int = 3
+    sample_use_mock_embeddings: bool = True
+    sample_embed_model: str = "text-embedding-3-small"

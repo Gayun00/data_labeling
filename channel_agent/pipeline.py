@@ -7,6 +7,7 @@ from .channel_api import ChannelTalkClient
 from .config import PipelineConfig
 from .pii import mask_pii
 from .storage import LabeledChat, save_results_csv
+from .sample_vectors import search_sample_index
 
 logger = logging.getLogger(__name__)
 
@@ -87,12 +88,26 @@ class ChannelLabelingPipeline:
         for chat_id in chat_ids:
             bundle = self._fetch_chat_bundle(chat_id)
             dialog_text = self._merge_dialog_text(bundle.messages)
-            result = self.agent.summarize_and_label_dialog(dialog_text)
+            sample_prompt, sample_labels = (
+                self._build_prompt_with_samples(dialog_text) if self.config.use_sample_index else (dialog_text, [])
+            )
+            result = self.agent.summarize_and_label_dialog(sample_prompt)
+
+            # 샘플 라벨을 결과에 병합하여 few-shot 일관성을 강화 (중복 제거)
+            merged_labels = list(dict.fromkeys((result.get("labels") or []) + sample_labels))
+
+            # 요약이 프롬프트 안내문을 그대로 담았을 경우 원본 대화 요약으로 대체
+            summary_text = result.get("summary", "")
+            if ("아래 샘플 라벨" in summary_text) or ("[분석 대상 대화]" in summary_text):
+                summary_text = (dialog_text[:200] + "...") if len(dialog_text) > 200 else dialog_text
+            if not summary_text:
+                summary_text = (dialog_text[:200] + "...") if len(dialog_text) > 200 else dialog_text
+
             labeled_rows.append(
                 LabeledChat(
                     user_chat_id=chat_id,
-                    summary=result.get("summary", ""),
-                    labels=result.get("labels", []),
+                    summary=summary_text,
+                    labels=merged_labels,
                     emotion=result.get("emotion"),
                     created_at=bundle.metadata.get("createdAt") if isinstance(bundle.metadata, dict) else None,
                     custom_fields=bundle.metadata,
@@ -104,6 +119,44 @@ class ChannelLabelingPipeline:
         )
         logger.info("Saved %d labeled chats to %s", len(labeled_rows), output_path)
         return output_path
+
+    def _build_prompt_with_samples(self, dialog_text: str) -> (str, List[str]):
+        """Attach few-shot examples; return (prompt, sample_labels)."""
+        try:
+            results = search_sample_index(
+                dialog_text,
+                top_k=self.config.sample_top_k,
+                use_mock_embeddings=self.config.sample_use_mock_embeddings,
+                model=self.config.sample_embed_model,
+            )
+        except Exception as exc:  # index missing or embed failure
+            logger.warning("Sample index unavailable or search failed: %s", exc)
+            return dialog_text, []
+
+        if not results:
+            return dialog_text, []
+
+        examples: List[str] = []
+        sample_labels: List[str] = []
+        for idx, (rec, score) in enumerate(results, start=1):
+            label_str = "|".join(rec.labels) if rec.labels else "없음"
+            sample_labels.extend(rec.labels or [])
+            examples.append(
+                f"[샘플 {idx}] 유사도:{score:.2f}\n텍스트: {rec.text}\n라벨: {label_str}"
+            )
+
+        few_shot_block = "\n\n".join(examples)
+        guidance = (
+            "- 아래 샘플 라벨을 가능한 한 재사용하세요 (복수 라벨 허용).\n"
+            "- 샘플에 등장한 라벨 이름(예: 강사A, 코스1, 환불 등)을 그대로 유지하세요.\n"
+            "- 새 라벨이 꼭 필요할 때만 추가하되 기존과 의미가 겹치면 새로 만들지 마세요."
+        )
+        return (
+            f"{guidance}\n\n"
+            f"{few_shot_block}\n\n"
+            "[분석 대상 대화]\n"
+            f"{dialog_text}"
+        ), list(dict.fromkeys(sample_labels))
 
     def _paginate_chat_ids(self, created_from: str, created_to: str) -> List[str]:
         cursor: Optional[str] = None

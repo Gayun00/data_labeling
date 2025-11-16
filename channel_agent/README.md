@@ -28,6 +28,7 @@
 - `pipeline.py` : 날짜 범위별 수집→마스킹→요약/라벨링→CSV 저장
 - `storage.py` : 결과 저장 유틸
 - `ui_app.py` : Streamlit 기반 샘플(text, labels) 관리 UI, 날짜 범위 선택 후 라벨링 실행(목/실제 모드)
+- `sample_vectors.py` : 샘플 데이터를 임베딩해 간단한 유사도 검색용 로컬 인덱스(JSON) 생성/조회
 
 ### 출력
 `data/channel/results/labeled_chats.csv` 에 `user_chat_id, summary, labels, emotion, created_at, custom_fields` 컬럼이 저장됩니다. labels는 `|` 로 join 되어 있습니다.
@@ -39,5 +40,6 @@
 
 ### 샘플/라벨링 UI
 - 실행: `streamlit run channel_agent/ui_app.py`
-- 탭 1: 샘플 관리 — CSV/엑셀 업로드 또는 직접 입력(editable grid)으로 `text`, `labels` 필드 관리 → `data/channel/samples/samples.csv` 저장. 라벨은 콤마(,)나 파이프(|) 구분을 허용, 저장 시 `|` 정규화.
+- 탭 1: 샘플 관리 — CSV/엑셀 업로드 또는 직접 입력(editable grid)으로 `text`, `labels` 필드 관리 → `data/channel/samples/samples.csv` 저장. 라벨은 콤마(,)나 파이프(|) 구분을 허용, 저장 시 `|` 정규화(다중 라벨 지원).
 - 탭 2: 라벨링 실행 — 날짜 범위 선택 후 파이프라인 실행 결과를 UI에서 미리보고 CSV 다운로드. 기본은 목(Mock) 모드(키/네트워크 없이), 실사용 시 체크 해제 후 키/네트워크 필요. 로컬 PII 마스킹을 끌 수 있는 옵션으로 에이전트/가드레일이 직접 마스킹하는지 테스트할 수 있습니다.
+- 샘플 벡터 인덱스: 샘플 탭에서 “인덱스 생성/갱신”으로 `data/channel/samples/sample_vectors.json` 생성. 모의 임베딩(키/네트워크 없이) 또는 OpenAI 임베딩 선택 가능. 질의 입력 후 유사도 검색 결과를 바로 표로 확인할 수 있습니다.

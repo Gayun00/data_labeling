@@ -44,11 +44,13 @@ class ChannelTalkClient:
             {"id": "chat_002", "userId": "user_101", "name": "김영희", "description": "환불 요청", "state": "closed", "openedAt": "2024-08-02T11:00:00Z", "closedAt": "2024-08-02T12:00:00Z", "tags": ["환불", "결제"], "chatUrl": "https://open.channel.io/chats/chat_002"},
             {"id": "chat_003", "userId": "user_102", "name": "박민수", "description": "만족도 낮음, UI 불편", "state": "open", "openedAt": "2024-08-03T08:00:00Z", "closedAt": None, "tags": ["환불", "uiux"], "chatUrl": "https://open.channel.io/chats/chat_003"},
             {"id": "chat_004", "userId": "user_103", "name": "이지은", "description": "가격이 너무 비쌈", "state": "open", "openedAt": "2024-08-03T10:00:00Z", "closedAt": None, "tags": ["환불", "가격"], "chatUrl": "https://open.channel.io/chats/chat_004"},
+            {"id": "chat_017", "userId": "user_116", "name": "최은지", "description": "배송이 지연됨", "state": "open", "openedAt": "2024-08-06T12:00:00Z", "closedAt": None, "tags": ["배송", "지연"], "chatUrl": "https://open.channel.io/chats/chat_017"},
 
             # 2) 도서 상품/배송/반품
             {"id": "chat_005", "userId": "user_104", "name": "최서연", "description": "도서 배송 확인", "state": "open", "openedAt": "2024-08-04T09:30:00Z", "closedAt": None, "tags": ["도서", "배송"], "chatUrl": "https://open.channel.io/chats/chat_005"},
             {"id": "chat_006", "userId": "user_105", "name": "윤정호", "description": "도서 반품 문의", "state": "open", "openedAt": "2024-08-04T10:00:00Z", "closedAt": None, "tags": ["도서", "반품"], "chatUrl": "https://open.channel.io/chats/chat_006"},
             {"id": "chat_007", "userId": "user_106", "name": "오하늘", "description": "배송 주소 변경", "state": "open", "openedAt": "2024-08-04T11:00:00Z", "closedAt": None, "tags": ["도서", "배송", "주소"], "chatUrl": "https://open.channel.io/chats/chat_007"},
+            {"id": "chat_018", "userId": "user_117", "name": "이도연", "description": "책 반품 요청", "state": "open", "openedAt": "2024-08-06T13:00:00Z", "closedAt": None, "tags": ["도서", "반품"], "chatUrl": "https://open.channel.io/chats/chat_018"},
 
             # 3) 강사별 수강/환불 문의 (3명 x 2개 상품)
             {"id": "chat_008", "userId": "user_107", "name": "강도현", "description": "강사A 코스1 환불", "state": "open", "openedAt": "2024-08-05T09:00:00Z", "closedAt": None, "tags": ["강사A", "코스1", "환불"], "chatUrl": "https://open.channel.io/chats/chat_008"},
@@ -57,6 +59,7 @@ class ChannelTalkClient:
             {"id": "chat_011", "userId": "user_110", "name": "신유진", "description": "강사B 코스2 수강문의", "state": "open", "openedAt": "2024-08-05T10:30:00Z", "closedAt": None, "tags": ["강사B", "코스2", "수강문의"], "chatUrl": "https://open.channel.io/chats/chat_011"},
             {"id": "chat_012", "userId": "user_111", "name": "정호진", "description": "강사C 코스1 환불", "state": "open", "openedAt": "2024-08-05T11:00:00Z", "closedAt": None, "tags": ["강사C", "코스1", "환불"], "chatUrl": "https://open.channel.io/chats/chat_012"},
             {"id": "chat_013", "userId": "user_112", "name": "서윤아", "description": "강사C 코스2 문의", "state": "open", "openedAt": "2024-08-05T11:30:00Z", "closedAt": None, "tags": ["강사C", "코스2", "수강문의"], "chatUrl": "https://open.channel.io/chats/chat_013"},
+            {"id": "chat_019", "userId": "user_118", "name": "장은호", "description": "강사A 코스1 만족도 낮음 환불 고민", "state": "open", "openedAt": "2024-08-06T14:00:00Z", "closedAt": None, "tags": ["강사A", "코스1", "환불"], "chatUrl": "https://open.channel.io/chats/chat_019"},
 
             # 4) 기능 제안
             {"id": "chat_014", "userId": "user_113", "name": "추가요청1", "description": "스크립트 제공 요청", "state": "open", "openedAt": "2024-08-06T08:00:00Z", "closedAt": None, "tags": ["제안", "스크립트"], "chatUrl": "https://open.channel.io/chats/chat_014"},
@@ -81,15 +84,18 @@ class ChannelTalkClient:
             "chat_002": {"name": "김영희", "description": "환불 요청", "tags": ["환불", "결제"]},
             "chat_003": {"name": "박민수", "description": "만족도 낮음, UI 불편", "tags": ["환불", "uiux"]},
             "chat_004": {"name": "이지은", "description": "가격 불만", "tags": ["환불", "가격"]},
+            "chat_017": {"name": "최은지", "description": "배송 지연", "tags": ["배송", "지연"]},
             "chat_005": {"name": "최서연", "description": "도서 배송 확인", "tags": ["도서", "배송"]},
             "chat_006": {"name": "윤정호", "description": "도서 반품", "tags": ["도서", "반품"]},
             "chat_007": {"name": "오하늘", "description": "배송 주소 변경", "tags": ["도서", "배송", "주소"]},
+            "chat_018": {"name": "이도연", "description": "책 반품 요청", "tags": ["도서", "반품"]},
             "chat_008": {"name": "강도현", "description": "강사A 코스1 환불", "tags": ["강사A", "코스1", "환불"]},
             "chat_009": {"name": "백승우", "description": "강사A 코스2 문의", "tags": ["강사A", "코스2", "수강문의"]},
             "chat_010": {"name": "문하린", "description": "강사B 코스1 환불", "tags": ["강사B", "코스1", "환불"]},
             "chat_011": {"name": "신유진", "description": "강사B 코스2 수강문의", "tags": ["강사B", "코스2", "수강문의"]},
             "chat_012": {"name": "정호진", "description": "강사C 코스1 환불", "tags": ["강사C", "코스1", "환불"]},
             "chat_013": {"name": "서윤아", "description": "강사C 코스2 문의", "tags": ["강사C", "코스2", "수강문의"]},
+            "chat_019": {"name": "장은호", "description": "강사A 코스1 불만/환불 고민", "tags": ["강사A", "코스1", "환불"]},
             "chat_014": {"name": "추가요청1", "description": "스크립트 제공 요청", "tags": ["제안", "스크립트"]},
             "chat_015": {"name": "추가요청2", "description": "다크모드 필요", "tags": ["제안", "다크모드"]},
             "chat_016": {"name": "추가요청3", "description": "모바일 최적화", "tags": ["제안", "모바일"]},
@@ -186,6 +192,18 @@ class ChannelTalkClient:
             "chat_016": [
                 {"id": "m31", "personType": "customer", "plainText": "모바일에서 버튼이 너무 작아요. 개선 요청합니다.", "createdAt": "2024-08-06T10:05:00Z"},
                 {"id": "m32", "personType": "manager", "plainText": "모바일 UI 개선 건으로 전달하겠습니다.", "createdAt": "2024-08-06T10:06:00Z"},
+            ],
+            "chat_017": [
+                {"id": "m33", "personType": "customer", "plainText": "주문한 강의 교재가 계속 안 와요. 송장도 없고 시간 오래 걸리네요.", "createdAt": "2024-08-06T12:05:00Z"},
+                {"id": "m34", "personType": "manager", "plainText": "지연 확인 후 송장/도착 예정일 안내드리겠습니다.", "createdAt": "2024-08-06T12:06:00Z"},
+            ],
+            "chat_018": [
+                {"id": "m35", "personType": "customer", "plainText": "책이 생각보다 별로라 반품하고 싶습니다. 주소는 경기 용인시 기흥구 보정동이에요.", "createdAt": "2024-08-06T13:05:00Z"},
+                {"id": "m36", "personType": "manager", "plainText": "수거 접수 도와드리겠습니다. 택배 기사 방문 일정 안내드릴게요.", "createdAt": "2024-08-06T13:06:00Z"},
+            ],
+            "chat_019": [
+                {"id": "m37", "personType": "customer", "plainText": "강사A 코스1 내용이 기대 이하라서 환불할지 고민 중이에요. 010-7777-8888로 연락 주세요.", "createdAt": "2024-08-06T14:05:00Z"},
+                {"id": "m38", "personType": "manager", "plainText": "불편 드려 죄송합니다. 환불 또는 다른 코스 추천 중 어떤 걸 도와드릴까요?", "createdAt": "2024-08-06T14:06:00Z"},
             ],
         }
         messages = messages_map.get(
