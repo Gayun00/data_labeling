@@ -240,3 +240,37 @@
 - 기본: 가능하면 원문 전체를 한 번에 라벨링(LLM 입력 한도 내에서).
 - 예외: 대화가 너무 길어 한 번에 넣기 어려우면 chunk 단위로 나눠 부분 요약 → 요약들을 합쳐 최종 요약 → 그 요약으로 라벨링.
 - 장점: chunking으로 LLM이 한 번에 읽어야 하는 텍스트 양을 줄이면서도 전체 정보를 커버할 수 있음. 대부분 대화는 원문 라벨링, 초장문의 경우에만 2단계(요약→라벨링)를 적용.
+
+## 14. 라벨링 프롬프트 설계
+- **샘플 검색**: 라벨 대상 대화를 임베딩해 벡터 스토어에서 상위 K개의 샘플을 검색. 유사도가 높을 때만 프롬프트에 포함하고, 낮으면 “참고 샘플 없음”으로 진행.
+- **프롬프트 섹션**
+  - *System*: 역할/규칙/출력 형식 정의(예: “고객 문의를 분류하는 전문가로서 JSON만 출력”).
+  - *Reference Samples*: 검색된 샘플 2~3개의 라벨+핵심 텍스트를 짧게 나열.
+  - *Messages*: `Inquiry.messages`를 시간순으로 포맷팅. 필요 시 chunk로 나누고 요약을 덧붙임.
+  - *Task/Instruction*: 라벨 스키마, JSON 출력 스키마, 확신 없을 때 처리 방식 등 명시.
+- **프롬프트 예시**
+  ```
+  [Reference Samples]
+  1) Label: 배송 지연 | Similarity: 0.83
+     Text: "배송 예정일이 지났는데 아직도 준비중입니다."
+  2) Label: 환불 요청 | Similarity: 0.76
+     Text: "제품이 파손돼서 환불하고 싶습니다."
+
+  [Messages]
+  [2024-03-12 10:05] USER: 지난주에 주문한 상품이 아직도 도착하지 않았어요.
+  [2024-03-12 10:10] MANAGER: 물류에서 지연이 있어 2일 내 배송 예정입니다.
+  ...
+
+  [Task]
+  - Primary label from ["배송 지연","환불 요청","교환 문의","기타"].
+  - Secondary labels optional; return [] when none.
+  - Output JSON:
+    {
+      "label_primary": "<string>",
+      "label_secondary": ["<string>", ...],
+      "confidence": 0.0~1.0,
+      "reasoning": "<<=200 chars>",
+      "summary": "<1-2 sentences>"
+    }
+  ```
+- **출력 검증**: LLM 응답은 JSON schema 검증 후 저장. 실패 시 재시도하거나 fallback 모델 호출.
