@@ -51,7 +51,7 @@ def main() -> None:
 
     init_state()
 
-    tab1, tab2, tab3 = st.tabs(["샘플 관리", "원본 데이터 정규화", "Mock API 배치"])
+    tab1, tab2, tab3, tab4 = st.tabs(["샘플 관리", "원본 데이터 정규화", "Mock API 배치", "인사이트"])
 
     with tab1:
         render_sample_intro()
@@ -63,6 +63,9 @@ def main() -> None:
 
     with tab3:
         render_mock_batch_tab()
+
+    with tab4:
+        render_insight_tab()
 
 
 def init_state() -> None:
@@ -265,12 +268,13 @@ def render_mock_batch_tab() -> None:
         st.warning("샘플 라이브러리가 필요합니다. 먼저 샘플 CSV를 업로드하세요.")
         return
 
-    count = st.slider("Mock 문의 수", min_value=1, max_value=5, value=3, key="mock_batch_count")
+    default_count = 25
+    st.caption(f"Mock API는 기본으로 {default_count}건의 문의를 생성합니다.")
     use_llm = st.checkbox("LLM 호출 사용", value=True, key="mock_batch_use_llm")
 
     if st.button("Mock API 호출 및 배치 실행", type="primary", key="mock_batch_run"):
         try:
-            info = run_mock_batch_pipeline(library, count=count, use_llm=use_llm)
+            info = run_mock_batch_pipeline(library, count=default_count, use_llm=use_llm)
         except Exception as exc:  # pragma: no cover - surfaced to UI
             st.error(f"Mock 배치 실행 중 오류가 발생했습니다: {exc}")
         else:
@@ -281,6 +285,57 @@ def render_mock_batch_tab() -> None:
 
     render_mock_batch_overview()
 
+
+def render_insight_tab() -> None:
+    info = st.session_state.get("mock_batch_info") or {}
+    export_df: Optional[pd.DataFrame] = info.get("export_df") if info else None
+
+    if export_df is None or export_df.empty:
+        st.info("Mock 배치를 실행하면 라벨 기반 인사이트를 확인할 수 있습니다.")
+        return
+
+    df = export_df.copy()
+    if "started_at" not in df or df["started_at"].isna().all():
+        st.warning("started_at 정보가 없어 인사이트를 계산할 수 없습니다.")
+        return
+
+    df["started_at"] = pd.to_datetime(df["started_at"], errors="coerce")
+    df.dropna(subset=["started_at"], inplace=True)
+    if df.empty:
+        st.warning("유효한 started_at 값이 없습니다.")
+        return
+
+    df["week"] = df["started_at"].dt.strftime("%Y-%W")
+
+    weekly = df.groupby(["week", "label_primary"]).size().reset_index(name="count")
+    if weekly.empty:
+        st.info("라벨 데이터가 없어 인사이트를 생성할 수 없습니다.")
+        return
+
+    pivot = weekly.pivot(index="week", columns="label_primary", values="count").fillna(0)
+    st.subheader("주간 라벨 비중")
+    st.dataframe(pivot, use_container_width=True)
+    st.bar_chart(pivot)
+
+    latest_week = pivot.index[-1]
+    latest = weekly[weekly["week"] == latest_week].sort_values("count", ascending=False)
+    st.subheader(f"가장 많은 라벨 – {latest_week}")
+    if latest.empty:
+        st.write("데이터가 없습니다.")
+        return
+    top_row = latest.iloc[0]
+    top_label = top_row["label_primary"]
+    st.markdown(
+        f"**{top_label}** (건수 {int(top_row['count'])}), 전체의 약 {top_row['count'] / latest['count'].sum():.0%}"
+    )
+
+    top_samples = df[df["label_primary"] == top_label]["summary"].dropna().head(3)
+    if top_samples.empty:
+        st.write("요약 정보가 없습니다.")
+    else:
+        st.write("대표 요약:")
+        for summary in top_samples:
+            st.write(f"- {summary}")
 
 def render_mock_batch_overview() -> None:
     info = st.session_state.get("mock_batch_info") or {}

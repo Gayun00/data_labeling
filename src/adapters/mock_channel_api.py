@@ -29,6 +29,17 @@ TEMPLATES: List[MockConversationTemplate] = [
         ],
     ),
     MockConversationTemplate(
+        topic="refund",
+        user_texts=[
+            "상품이 파손된 상태로 도착했습니다. 환불 요청할게요.",
+            "사진도 첨부했는데요, 바로 처리 부탁드려요.",
+        ],
+        manager_texts=[
+            "불편을 드려 죄송합니다. 즉시 환불 절차를 도와드릴게요.",
+            "회수 기사 방문 후 환불 완료까지 2~3일 정도 걸립니다.",
+        ],
+    ),
+    MockConversationTemplate(
         topic="delivery",
         user_texts=[
             "배송이 너무 늦어요.",
@@ -40,6 +51,17 @@ TEMPLATES: List[MockConversationTemplate] = [
         ],
     ),
     MockConversationTemplate(
+        topic="delivery",
+        user_texts=[
+            "배송 조회가 계속 준비중이라고 뜹니다.",
+            "월요일 행사라 꼭 그 전에 받아야 해요.",
+        ],
+        manager_texts=[
+            "택배사 시스템 오류로 조회가 늦었습니다.",
+            "당일 발송으로 재지시했으니 내일 수령 가능합니다.",
+        ],
+    ),
+    MockConversationTemplate(
         topic="product",
         user_texts=[
             "노트북이 갑자기 꺼져버립니다.",
@@ -48,6 +70,39 @@ TEMPLATES: List[MockConversationTemplate] = [
         manager_texts=[
             "수리를 위해 회수 접수를 도와드리겠습니다.",
             "주소 확인 후 2일 내 기사님 방문 예정입니다.",
+        ],
+    ),
+    MockConversationTemplate(
+        topic="payment",
+        user_texts=[
+            "결제를 했는데 영수증이 메일로 오지 않았어요.",
+            "중복 청구가 된 것 같아요.",
+        ],
+        manager_texts=[
+            "결제 내역을 확인 후 영수증을 재발송해드릴게요.",
+            "중복 청구 건은 즉시 환불 처리하겠습니다.",
+        ],
+    ),
+    MockConversationTemplate(
+        topic="account",
+        user_texts=[
+            "비밀번호를 잊어버려서 로그인할 수 없습니다.",
+            "인증 메일도 오질 않아요.",
+        ],
+        manager_texts=[
+            "임시 비밀번호를 발급해 드릴게요.",
+            "인증 메일이 스팸함에 있는지 확인 부탁드립니다.",
+        ],
+    ),
+    MockConversationTemplate(
+        topic="bug",
+        user_texts=[
+            "앱에서 결제 버튼을 누르면 계속 오류가 납니다.",
+            "다른 기기에서도 동일해요.",
+        ],
+        manager_texts=[
+            "기술팀에 전달해 패치 일정을 확인하겠습니다.",
+            "임시로 웹 버전을 이용해 주시면 감사하겠습니다.",
         ],
     ),
 ]
