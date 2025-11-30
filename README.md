@@ -46,6 +46,11 @@ review-labeler-mvp/
    streamlit run ui/app.py
    ```
 
+## 데모 커맨드
+- `make demo-conversations`: `data/raw/demo/` 샘플을 `ConversationFactory`로 변환해 라벨링 입력 구조를 확인합니다.
+- `make demo-samples`: `data/samples/demo_samples.csv`를 읽어 샘플 라이브러리/벡터를 생성합니다.
+- `make demos`: 위 두 데모를 순차 실행합니다.
+
 ## 구현 우선순위
 
 - [x] 디렉터리 및 파일 스캐폴딩

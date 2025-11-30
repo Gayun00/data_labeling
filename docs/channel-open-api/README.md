@@ -275,6 +275,20 @@
 - **라벨링 시 검색**: 라벨 대상 대화 텍스트(원문 또는 요약)을 임베딩해 `VectorStore.search(query_vector, top_k)` 호출 → 상위 샘플 K개를 가져와 LLM 프롬프트에 참고 정보로 첨부. 유사도 threshold를 둬서 관련 없는 샘플은 제거.
 - **확장 계획**: 샘플 버전 관리/롤백, 메타데이터 필터, Pinecone 등 외부 벡터 스토어 지원을 후순위 옵션으로 명시.
 
+### 12.1 데모 vs 실무 구성
+- **데모** (`scripts/demo_sample_ingest.py`)
+  - 입력 CSV: `data/samples/demo_samples.csv`.
+  - 임베딩: `src/embeddings/tfidf.py` (TF-IDF 기반 경량 모델).
+  - 벡터 스토어: `src/vector_store.py` (인메모리) → `data/samples/demo_vectors.json`에 결과 저장.
+  - 실행: `python3 scripts/demo_sample_ingest.py`.
+- **실무 권장안**
+  1. **임베딩**: OpenAI `text-embedding-3-small/large`를 기본으로 사용. 긴 대화는 chunk/요약 후 임베딩해 토큰 비용을 관리.
+     - 로컬 대안: `sentence-transformers` 모델을 CPU/GPU에서 직접 실행. 비용이 없지만 모델 관리 필요.
+  2. **벡터 스토어**: Chroma를 기본(샘플/원본 컬렉션 분리)으로 두고, 데이터량 증가 시 Pinecone/Qdrant 등 매니지드 서비스로 확장.
+  3. **버전 관리**: 샘플 CSV 업데이트나 모델 교체 시 `sample_library_version`, `embedding_model_version`을 기록하고, 벡터 재생성 스크립트를 통해 재현성을 확보.
+  4. **원본 대화 임베딩**: 일간 배치에서 Conversation 요약/청크를 벡터화하여 별도 컬렉션에 저장. 샘플 검색과 동일한 인터페이스를 사용해 few-shot 참조뿐 아니라 유사 대화 검색, 리포트에도 활용한다.
+
+
 ## 13. 긴 대화 처리 전략
 
 - 기본: 가능하면 원문 전체를 한 번에 라벨링(LLM 입력 한도 내에서).
