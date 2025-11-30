@@ -243,6 +243,30 @@
   4. 메시지가 하나도 없거나 필수 값이 비어 있으면 warning 후 skip.
 - **결과**: 한 문의에 속한 전체 메시지가 하나의 구조에 담겨 라벨러/리포트에서 재사용이 쉬워진다.
 
+### 11.1 데모 & 필드 단순화 예시
+- `data/raw/demo/` (샘플 raw): `user_chats.json` + `messages_{id}.json`. 실제 ChannelTalk API 응답 구조를 그대로 따름.
+- `scripts/demo_conversation_factory.py`: 샘플 raw를 읽어 `Conversation` dataclass로 변환한 뒤, 라벨링에 필요한 최소 필드만 남긴 JSON을 출력한다.
+  - 실행: `python3 scripts/demo_conversation_factory.py`
+  - 출력 구조(예시)
+    ```jsonc
+    {
+      "id": "uc_demo_001",
+      "channel_id": "ch_main",
+      "created_at": "2024-05-19T15:58:20",
+      "messages": [
+        "안녕하세요. 어제 받은 신발이 사이즈가 안 맞아서 환불하고 싶어요.",
+        "안녕하세요 고객님! …",
+        "주문번호는 O-12345입니다. …",
+        "확인되었습니다. …",
+        "수거 후 3영업일 내 환불될 예정이며 …"
+      ]
+    }
+    ```
+- **의미**
+  - 라벨링 프롬프트에는 메시지 배열만 전달해 토큰 사용량을 최소화한다.
+  - `id`/`channel_id`/`created_at`은 결과 리포트에서 조인용 키로 유지한다.
+  - 원본 메타데이터(발화자, 태그 등)는 `domain.inquiries`/`raw` 계층에 그대로 보존하므로, 라벨 결과 분석 시 필요한 필드를 언제든 다시 붙일 수 있다.
+
 ## 12. 샘플/벡터 설계
 
 - **샘플 포맷**: 단순 JSON (`library.json`)에 `{ "text": "대화 내용", "labels": ["라벨1", "라벨2"] }` 구조로 저장. `sample_id`는 ingestion 시 자동 생성.
@@ -394,6 +418,14 @@ sequenceDiagram
 ```
 
 ## 19. 자주 헷갈리는 지점 정리
+
 - **`new_inquiry_ids` 의미**: 이번 배치에서 새로 적재된 문의(`domain.inquiries`)의 ID 목록. 배치가 이 리스트만 `LabelerService`에 전달하고, 라벨러는 각 ID를 기준으로 저장소에서 최신 데이터를 직접 조회한다. 데이터 스냅샷을 매번 전달하지 않아도 되므로 재시도/수동 검토 시에도 ID만 있으면 되며, 다른 모듈과 데이터 일관성이 유지된다.
 - **ID 기반 라벨링 절차**: 라벨러는 전달받은 ID로 `inquiries`/`inquiry_messages` 테이블을 읽어 프롬프트를 구성한다. 따라서 배치와 라벨러 사이에는 “ID만 주고받는다”는 느슨한 결합이 유지된다.
 - **LLM 호출 횟수**: 한 문의(=한 `userChatId`)를 라벨링할 때마다 LLM을 한 번 호출하는 것이 기본. 하루 100건이면 100회 호출, 1,000건이면 1,000회 호출이 필요하다. 필요 시 특정 상태/태그만 우선 라벨링하거나 배치 빈도를 조절해 비용을 관리할 수 있다.
+
+## 20. 장기 확장 고려 사항 (요약)
+
+- **다중 소스 대응**: ChannelTalk 외 CSV/다른 API도 같은 라벨링 파이프라인을 거칠 수 있도록, 도메인 스키마(`inquiries`, `inquiry_messages`)를 소스 중립 구조(핵심 필드 + `meta` JSON)로 유지한다. 추후 새로운 어댑터가 추가되어도 라벨러/리포트는 동일 도메인 구조만 참조하도록 설계.
+- **Export/Analytics 다양화**: 기본 CSV/엑셀뿐 아니라 요약 리포트, BI/SQL 쿼리까지 확장할 수 있도록 Export 모듈을 계층화한다. 초기에 `inquiries + labels` 전체를 내보내는 기능을 만들되, 집계/피벗/시각화가 추가될 것을 염두에 두고 데이터 스키마를 정규화해 둔다.
+- **데이터 저장 전략**: 향후 Data Warehouse(예: BigQuery, Snowflake) 또는 DuckDB/Parquet 기반 분석으로 확장할 수 있게, 현재 저장소도 Parquet/CSV + RDB 조합 등 이동이 쉬운 포맷을 고려한다.
+- **이후 논의 예정**: 보고/엑셀 Export 구체 설계, 모니터링/알림 방식, 다중 소스 어댑터 구조 등은 향후 단계에서 추가 논의한다.
