@@ -147,3 +147,66 @@
 - **필터/리포트 강화**: `state`, `tags`, `goalState`, `managerIds` 등 메타 필드를 기준으로 특정 구간만 추출해 별도 라벨링/모델 실험에 활용 가능.
 
 이 문서를 기준으로 개발 시 `raw → domain → label` 순으로 책임을 분리하고, 커서값을 안정적으로 보존하는 배치 파이프라인을 구현한다.
+
+## 6. 파이프라인 개요
+1. **Ingest**: ChannelTalk Open API 호출로 user chat 메타와 메시지를 수집해 `raw` 계층에 저장하고 커서를 갱신.
+2. **Normalize**: `ConversationFactory`가 raw 데이터를 결합·정제하여 `domain.inquiries` 객체를 생성.
+3. **Label**: 라벨링 큐/서비스가 `domain.inquiries`를 입력으로 LLM/룰 기반 분류를 실행하고 `label.results`에 저장.
+4. **Report**: `domain + label` 데이터를 조합해 CSV/엑셀/대시보드를 생성.
+5. **Monitor**: 배치 러너가 단계 실행/에러/커서 상태를 추적하여 재시작 가능성을 확보.
+
+## 7. 컴포넌트 설계
+
+| 계층 | 주요 컴포넌트 | 역할 |
+| --- | --- | --- |
+| Ingest | `ChannelTalkClient`, `UserChatFetcher`, `MessageFetcher`, `RawStore` | API 호출/재시도, 커서 관리, raw 데이터 저장 |
+| Normalize | `ConversationFactory`, `SchemaValidators` | raw 데이터를 도메인 `Inquiry` 객체로 변환 |
+| Labeling | `LabelingQueue`, `LabelerService`, `LabelStore` | 라벨링 요청 큐 관리, LLM 호출 및 결과 저장 |
+| Report | `ReportBuilder`, `DashboardAPI(선택)` | `Inquiry+Label`을 조합해 CSV/리포트 생성 |
+| Orchestration | `BatchRunner`, `MetricsLogger`, `Config` | 일 배치 스케줄, 상태 로깅, 설정 관리 |
+
+각 컴포넌트는 패키지/폴더 단위로 구현할 수 있으며, 예: `src/ingest`, `src/domain`, `src/labeling`, `src/report`, `src/orchestrator`, `src/store`.
+
+## 8. 데이터 저장 상세
+
+### 8.1 Raw Layer
+- **원칙**: API 응답을 변형 없이 저장하며, 커서와 수집 시각을 함께 기록해 재처리/감사를 지원.
+- **테이블/컬렉션 예시**
+  - `raw_user_chats`
+    - `user_chat_id` (PK), `channel_id`, `state`, `payload`(JSONB), `cursor_next`, `fetched_at`.
+    - `payload`에 `/user-chats` 응답 전체를 보존. `cursor_next`는 호출 직후 받은 `next` 값.
+  - `raw_messages`
+    - `user_chat_id`, `message_id`(PK), `payload`(JSONB), `cursor_next`, `fetched_at`.
+    - 메시지 페이지마다 append하며, 동일 메시지 ID는 upsert.
+- **저장소 선택**: 초기엔 Postgres JSONB 또는 Parquet 파일(S3/local). 대량 데이터 시 Data Lake + Glue Athena 패턴으로 확장 가능.
+
+### 8.2 Domain Layer
+- **목적**: 라벨링과 리포트가 바로 소비할 수 있는 정규화된 스키마 제공.
+- **테이블 예시**
+  - `inquiries`
+    - `id`(=user_chat_id, PK), `channel_id`, `state`, `opened_at`, `closed_at`, `tags`(JSONB), `assignee_id`, `manager_ids`(JSONB), `meta`(JSONB), `message_count`, `built_at`.
+  - `inquiry_messages`
+    - `id`(=message_id, PK), `inquiry_id`, `sender_type`, `sender_id`, `created_at`, `text`, `attachments`(JSONB), `meta`(JSONB).
+- `meta`에는 추가 필드(세션, goalState, source, supportBot 등)를 그대로 담아 향후 규칙에 활용.
+
+### 8.3 Label Layer
+- `labels`
+  - `inquiry_id`(FK), `category`, `sub_category`, `confidence`, `model_version`, `prompt_version`, `explanation`, `labeled_at`.
+  - 동일 문의를 여러 라벨러가 처리할 수 있도록 `version` 또는 `run_id` 필드 추가.
+- `label_audit`
+  - 수동 수정 내역, 검수 기록, human override를 저장해 품질 관리.
+
+## 9. 배치/스케줄링 설계
+- **잡 구분**
+  1. `fetch_user_chats`: `user_chats_cursor`를 사용해 `/user-chats` 호출, `raw_user_chats` 적재.
+  2. `fetch_messages`: 새 `user_chat_id` 목록으로 `/messages` 호출, `raw_messages` 적재.
+  3. `build_inquiries`: raw 데이터를 조합해 `inquiries` + `inquiry_messages` upsert.
+  4. `run_labeling`: 신규/미라벨 문의를 큐에 넣고 라벨링 처리, `labels` 저장.
+  5. `export_reports`: `inquiries + labels` 조인해 CSV/리포트를 생성하고 공유 위치에 저장.
+- **오케스트레이션**
+  - 단순 MVP: Cron + Python 스크립트 체이닝, 커서는 로컬/DB에 저장.
+  - 확장 시: Airflow/Prefect 등으로 DAG 구성, 태스크 간 의존성 관리, 재시작 지원.
+  - 각 태스크는 idempotent하게 작성해 재시도 시 중복 저장을 피함(upsert).
+- **모니터링**
+  - 처리 건수, 실패 건수, 마지막 커서, 라벨링 응답 시간 등을 metric/log로 기록.
+  - 경고 조건: 커서 정지(신규 데이터 없음), API 실패 반복, 라벨링 에러율 상승.
