@@ -191,12 +191,15 @@ def render_labeling_section(info: Dict[str, Any]) -> None:
         st.warning("샘플 라이브러리가 필요합니다. 먼저 샘플 CSV를 업로드하세요.")
         return
 
-    settings = get_settings()
-    label_schema = [item.id for item in settings.labels.schema]
+    label_schema = sample_label_schema(library)
+    if not label_schema:
+        st.warning("샘플 라이브러리에 라벨이 없습니다. 먼저 라벨을 포함한 샘플을 업로드하세요.")
+        return
 
     use_llm = st.checkbox("LLM으로 라벨 분류 실행", value=False, key="use_llm")
 
     if st.button("정규화된 대화 라벨링 실행", type="primary", key="run_labeling"):
+        settings = get_settings()
         retriever = SimilarityRetriever(
             top_k=settings.retrieval.sample_top_k,
             min_similarity=settings.retrieval.min_similarity,
@@ -282,6 +285,7 @@ def render_mock_batch_tab() -> None:
 def render_mock_batch_overview() -> None:
     info = st.session_state.get("mock_batch_info") or {}
     df: Optional[pd.DataFrame] = st.session_state.get("mock_batch_df")
+    export_df: Optional[pd.DataFrame] = info.get("export_df") if info else None
     conversations = st.session_state.get("mock_batch_conversations") or []
 
     if not info:
@@ -339,7 +343,18 @@ def render_mock_batch_overview() -> None:
         with st.expander("도메인 스냅샷 미리보기"):
             st.json(domain_payload)
 
-    if df is not None and not df.empty:
+    if export_df is not None and not export_df.empty:
+        st.subheader("라벨링 Export (대화별)")
+        st.dataframe(export_df, use_container_width=True, hide_index=True)
+        csv_bytes = export_df.to_csv(index=False).encode("utf-8")
+        st.download_button(
+            "Mock 배치 Export CSV 다운로드",
+            data=csv_bytes,
+            file_name="mock_batch_export.csv",
+            mime="text/csv",
+            key=f"download_mock_csv_{info.get('timestamp','')}",
+        )
+    elif df is not None and not df.empty:
         st.dataframe(df, use_container_width=True, hide_index=True)
         csv_bytes = df.to_csv(index=False).encode("utf-8")
         st.download_button(
@@ -347,7 +362,7 @@ def render_mock_batch_overview() -> None:
             data=csv_bytes,
             file_name="mock_batch_labels.csv",
             mime="text/csv",
-            key=f"download_mock_csv_{info.get('timestamp','')}",
+            key=f"download_mock_labels_csv_{info.get('timestamp','')}",
         )
 
     failed = info.get("failed") or []
@@ -357,25 +372,17 @@ def render_mock_batch_overview() -> None:
         for convo_id in failed:
             st.text(f"- {convo_id}: {errors.get(convo_id, '(error message unavailable)')}")
 
-    if conversations:
+    if conversations and export_df is not None and not export_df.empty:
         st.subheader("라벨링된 대화 상세")
-        selected_id = st.selectbox(
-            "대화 선택",
-            [conv.id for conv in conversations],
-            key="mock_batch_convo_selector",
-        )
-        selected = next((conv for conv in conversations if conv.id == selected_id), None)
-        if selected:
-            with st.expander(f"대화 {selected.id} 메시지", expanded=True):
-                for message in selected.messages:
+        for conversation in conversations:
+            with st.expander(f"대화 {conversation.id}"):
+                for message in conversation.messages:
                     st.markdown(
                         f"**{message.sender_type}** ({message.created_at.strftime('%H:%M:%S')}): {message.text}"
                     )
-            matching = None
-            if df is not None:
-                matching = df[df["conversation_id"] == selected.id]
-            if matching is not None and not matching.empty:
-                st.table(matching)
+                matching = export_df[export_df["conversation_id"] == conversation.id]
+                if not matching.empty:
+                    st.table(matching)
 
 
 def render_raw_data_form() -> None:
@@ -658,10 +665,7 @@ def run_mock_batch_pipeline(library: SampleLibrary, count: int, use_llm: bool) -
             st.error(f"LLM 초기화 실패: {exc}")
             raise
 
-    if settings.labels.schema:
-        label_schema = [item.id for item in settings.labels.schema]
-    else:
-        label_schema = sorted({record.label_primary for record in library})
+    label_schema = sample_label_schema(library)
 
     pipeline = LabelingPipeline(retriever=retriever, llm_service=llm_service)
     st.write(f"라벨링 시작 - 대화 {len(conversations)}건, LLM 사용={bool(llm_service)}")
@@ -678,6 +682,10 @@ def run_mock_batch_pipeline(library: SampleLibrary, count: int, use_llm: bool) -
     labels_path.write_text(json.dumps(labels_payload, ensure_ascii=False, indent=2), encoding="utf-8")
 
     df = label_records_to_dataframe(result.records)
+    export_df = build_export_dataframe(conversations, result.records)
+    export_path = batch_dir / "export.csv"
+    if not export_df.empty:
+        export_df.to_csv(export_path, index=False)
     return {
         "timestamp": timestamp,
         "batch_dir": str(batch_dir),
@@ -690,6 +698,8 @@ def run_mock_batch_pipeline(library: SampleLibrary, count: int, use_llm: bool) -
         "errors": result.errors,
         "records": result.records,
         "labels_df": df,
+        "export_df": export_df,
+        "export_path": str(export_path),
         "conversations": conversations,
     }
 
@@ -751,6 +761,51 @@ def serialize_label_record(record: LabelRecord) -> Dict[str, Any]:
             for ref in record.result.references
         ],
     }
+
+
+def build_export_dataframe(conversations: List[Conversation], records: List[LabelRecord]) -> pd.DataFrame:
+    conv_map = {conversation.id: conversation for conversation in conversations}
+    rows: List[Dict[str, Any]] = []
+    for record in records:
+        convo = conv_map.get(record.conversation_id)
+        transcript = ""
+        started_at = None
+        channel_id = None
+        if convo:
+            channel_id = convo.channel_id
+            if convo.messages:
+                started_at = convo.messages[0].created_at.isoformat()
+            transcript_lines = []
+            for message in convo.messages:
+                transcript_lines.append(
+                    f"[{message.created_at.strftime('%Y-%m-%d %H:%M:%S')}] {message.sender_type}: {message.text}"
+                )
+            transcript = "\n".join(transcript_lines)
+        rows.append(
+            {
+                "conversation_id": record.conversation_id,
+                "channel_id": channel_id,
+                "started_at": started_at,
+                "label_primary": record.result.label_primary,
+                "label_secondary": ", ".join(record.result.label_secondary),
+                "confidence": record.result.confidence,
+                "summary": record.result.summary,
+                "reasoning": record.result.reasoning,
+                "transcript": transcript,
+                "references": ", ".join(
+                    f"{ref.sample_id}:{ref.label}({ref.score:.2f})" if ref.score is not None else f"{ref.sample_id}:{ref.label}"
+                    for ref in record.result.references
+                ),
+            }
+        )
+    return pd.DataFrame(rows)
+
+
+def sample_label_schema(library: SampleLibrary) -> List[str]:
+    if not library:
+        return []
+    labels = {record.label_primary for record in library}
+    return sorted(labels)
 
 
 if __name__ == "__main__":
