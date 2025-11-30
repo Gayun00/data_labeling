@@ -332,6 +332,25 @@
 
 - **출력 검증**: LLM 응답은 JSON schema 검증 후 저장. 실패 시 재시도하거나 fallback 모델 호출.
 
+### 14.1 라벨러 데모
+- **스크립트**: `scripts/demo_labeler.py`
+  - 선행 조건: `make demo-conversations`, `make demo-samples` 또는 `make demos`로 도메인/샘플 데이터를 준비한다.
+  - 구성 요소
+    1. `SampleLibrary`: `data/samples/demo_library.json`을 로드해 라벨 스키마/샘플을 확보.
+    2. `SimilarityRetriever`: TF-IDF 기반으로 상위 3개의 샘플을 조회.
+    3. `LLMService(OpenAIBackend)`: OpenAI Responses API를 통해 JSON 라벨을 생성.
+    4. `LabelingPipeline`: demo conversation 전부에 대해 라벨링을 실행하고 결과를 수집.
+  - 실행: `python3 scripts/demo_labeler.py` 또는 `make demo-labeler`.
+  - 출력: `data/results/demo_labels.json` (각 문의 ID/라벨/레퍼런스/확신도를 포함) + 콘솔 로그로 요약.
+- **실무 전환 시**
+-  - OpenAI 외 Hugging Face/Anthropic 클라이언트를 백엔드로 주입하고, 재시도/검증/로깅을 `LabelerService`에 통합.
+  - `new_inquiry_ids`만 입력받아 필요한 문의를 조회하도록 CLI/서비스를 확장해 배치와 느슨하게 결합한다.
+
+### 14.2 LLM 백엔드 추상화
+- 코드에서는 `LLMBackend` 프로토콜을 통해 OpenAI·Hugging Face 등 다양한 모델을 교체할 수 있도록 했다.
+- 기본 구현은 `OpenAIBackend`(Responses API 사용)이며, Hugging Face 모델을 사용하려면 동일한 `complete(messages, model, temperature)` 인터페이스를 가진 백엔드를 추가하면 된다.
+- `LLMService`는 백엔드와 모델명을 주입받아 프롬프트를 구성하고 JSON 응답을 파싱하므로, 모델 교체 시 라벨링 파이프라인 코드는 그대로 유지된다.
+
 ## 15. 라벨링 결과 검증 시나리오
 
 - **JSON 스키마 누락**

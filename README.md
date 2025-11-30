@@ -40,7 +40,7 @@ review-labeler-mvp/
    source .venv/bin/activate
    pip install -r requirements.txt
    ```
-2. `.env.example`을 참고해 `.env`를 생성하고 OpenAI 키 등 환경변수를 설정합니다.
+2. `.env.example`을 참고해 `.env`를 생성하고 OPENAI_API_KEY 등 환경변수를 설정합니다.
 3. Streamlit UI를 실행합니다.
    ```bash
    streamlit run ui/app.py
@@ -49,7 +49,8 @@ review-labeler-mvp/
 ## 데모 커맨드
 - `make demo-conversations`: `data/raw/demo/` 샘플을 `ConversationFactory`로 변환해 라벨링 입력 구조를 확인합니다.
 - `make demo-samples`: `data/samples/demo_samples.csv`를 읽어 샘플 라이브러리/벡터를 생성합니다.
-- `make demos`: 위 두 데모를 순차 실행합니다.
+- `make demo-labeler`: 위 두 결과를 사용해 샘플 검색→OpenAI LLM 호출→라벨 결과(JSON)를 생성합니다. (OPENAI_API_KEY 필요)
+- `make demos`: 세 데모를 순차 실행합니다.
 
 ## 구현 우선순위
 

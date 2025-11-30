@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 from dataclasses import dataclass
 from datetime import datetime
-from typing import List, Optional, Sequence
+from typing import Any, Dict, List, Optional, Protocol, Sequence
 
 from src.models.conversation import Conversation
 from src.models.label import LabelRecord, LabelResult, SampleReference
@@ -81,13 +81,47 @@ class LabelingPipeline:
         )
 
 
-class LLMService:
-    """Very small wrapper for LLM classification."""
+class LLMBackend(Protocol):
+    """Minimal interface for pluggable LLM providers (OpenAI, Hugging Face 등)."""
 
-    def __init__(self, client: Optional["OpenAI"] = None, model: str = "gpt-4.1-mini", temperature: float = 0.1) -> None:
+    def complete(self, messages: Sequence[Dict[str, Any]], model: str, temperature: float) -> str:
+        ...
+
+
+class OpenAIBackend:
+    """Default backend using OpenAI Responses API."""
+
+    def __init__(self, client: Optional["OpenAI"] = None) -> None:
         from openai import OpenAI  # type: ignore
 
-        self.client = client or OpenAI()
+        self._client = client or OpenAI()
+
+    def complete(self, messages: Sequence[Dict[str, Any]], model: str, temperature: float) -> str:
+        completion = self._client.responses.create(  # type: ignore[attr-defined]
+            model=model,
+            input=list(messages),
+            temperature=temperature,
+        )
+
+        try:
+            return completion.output_text  # type: ignore[attr-defined]
+        except AttributeError:
+            choice = completion.choices[0]
+            if isinstance(choice, dict):  # type: ignore[unreachable]
+                return choice["message"]["content"]
+            return choice.message.content  # type: ignore[attr-defined]
+
+
+class LLMService:
+    """Wrapper that builds prompts and delegates to an LLM backend."""
+
+    def __init__(
+        self,
+        backend: Optional[LLMBackend] = None,
+        model: str = "gpt-4o-mini",
+        temperature: float = 0.1,
+    ) -> None:
+        self.backend = backend or OpenAIBackend()
         self.model = model
         self.temperature = temperature
 
@@ -99,25 +133,18 @@ class LLMService:
     ) -> LabelResult:
         prompt = self._build_prompt(conversation, matches, label_schema)
 
-        completion = self.client.responses.create(  # type: ignore[attr-defined]
-            model=self.model,
-            input=[
-                {
-                    "role": "system",
-                    "content": "You classify customer service conversations. Always respond with JSON.",
-                },
-                {
-                    "role": "user",
-                    "content": prompt,
-                },
-            ],
-            temperature=self.temperature,
-        )
+        messages: List[Dict[str, Any]] = [
+            {
+                "role": "system",
+                "content": "You classify customer service conversations. Always respond with JSON.",
+            },
+            {
+                "role": "user",
+                "content": prompt,
+            },
+        ]
 
-        try:
-            text = completion.output_text  # type: ignore[attr-defined]
-        except AttributeError:
-            text = completion.choices[0].message["content"]  # type: ignore[index]
+        text = self.backend.complete(messages, model=self.model, temperature=self.temperature)
 
         payload = json.loads(text)
 
@@ -167,4 +194,3 @@ class LLMService:
             f"{conversation_text}\n"
             "Respond with JSON: {\"label_primary\": str, \"label_secondary\": list[str], \"confidence\": number, \"summary\": str, \"reasoning\": str, \"references\": [{\"sample_id\": str, \"label\": str, \"score\": number}]}"
         )
-
