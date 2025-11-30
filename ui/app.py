@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import io
 import json
+import os
 import sys
 from dataclasses import asdict
 from datetime import datetime
@@ -11,14 +12,18 @@ from typing import Any, Dict, List, Optional
 import pandas as pd
 import streamlit as st
 from streamlit.runtime.uploaded_file_manager import UploadedFile
+from dotenv import load_dotenv
 
 ROOT_DIR = Path(__file__).resolve().parents[1]
 if str(ROOT_DIR) not in sys.path:
     sys.path.insert(0, str(ROOT_DIR))
+load_dotenv(ROOT_DIR / ".env")
 
 from config import get_settings
 from src.adapters.channel_talk_csv import ChannelTalkCSVAdapter
+from src.adapters.mock_channel_api import MockChannelTalkAPI
 from src.embeddings import TfidfEmbedder
+from src.demo.conversations import load_conversations, save_domain_snapshot, save_raw_payload
 from src.models.conversation import Conversation
 from src.models.label import LabelRecord
 from src.models.sample import SampleLibrary, SampleRecord
@@ -34,6 +39,7 @@ SAMPLE_UPLOAD_DIR = SAMPLE_DIR / "uploads"
 SAMPLE_LIBRARY_PATH = SAMPLE_DIR / "library.json"
 RAW_DIR = DATA_DIR / "raw"
 NORMALIZED_DIR = DATA_DIR / "normalized"
+MOCK_BATCH_DIR = DATA_DIR / "mock_batches"
 
 RAW_ALLOWED_EXTENSIONS = {".xlsx", ".xls", ".csv"}
 
@@ -45,7 +51,7 @@ def main() -> None:
 
     init_state()
 
-    tab1, tab2 = st.tabs(["샘플 관리", "원본 데이터 정규화"])
+    tab1, tab2, tab3 = st.tabs(["샘플 관리", "원본 데이터 정규화", "Mock API 배치"])
 
     with tab1:
         render_sample_intro()
@@ -54,6 +60,9 @@ def main() -> None:
 
     with tab2:
         render_raw_data_section()
+
+    with tab3:
+        render_mock_batch_tab()
 
 
 def init_state() -> None:
@@ -71,6 +80,9 @@ def init_state() -> None:
     st.session_state.setdefault("sample_ingestion_result", None)
     st.session_state.setdefault("raw_data_info", None)
     st.session_state.setdefault("labeling_result", None)
+    st.session_state.setdefault("mock_batch_info", None)
+    st.session_state.setdefault("mock_batch_df", None)
+    st.session_state.setdefault("mock_batch_conversations", None)
 
 
 def render_sample_intro() -> None:
@@ -207,6 +219,8 @@ def render_labeling_section(info: Dict[str, Any]) -> None:
         st.success(f"총 {len(result.records)}건 라벨링 완료")
         if result.failed:
             st.warning(f"LLM 호출 실패 {len(result.failed)}건: {', '.join(result.failed)}")
+            for convo_id in result.failed:
+                st.text(f"- {convo_id}: {result.errors.get(convo_id, '(error message unavailable)')}")
 
     render_labeling_overview()
 
@@ -237,6 +251,131 @@ def render_raw_data_section() -> None:
     render_raw_data_form()
     st.divider()
     render_raw_data_overview()
+
+
+def render_mock_batch_tab() -> None:
+    st.subheader("Mock API 배치 데모")
+    st.caption("Mock ChannelTalk API에서 데이터를 받아와 도메인 저장 → 라벨링까지 한 번에 실행합니다.")
+
+    library: Optional[SampleLibrary] = st.session_state.get("sample_library")
+    if not library or len(library) == 0:
+        st.warning("샘플 라이브러리가 필요합니다. 먼저 샘플 CSV를 업로드하세요.")
+        return
+
+    count = st.slider("Mock 문의 수", min_value=1, max_value=5, value=3, key="mock_batch_count")
+    use_llm = st.checkbox("LLM 호출 사용", value=True, key="mock_batch_use_llm")
+
+    if st.button("Mock API 호출 및 배치 실행", type="primary", key="mock_batch_run"):
+        try:
+            info = run_mock_batch_pipeline(library, count=count, use_llm=use_llm)
+        except Exception as exc:  # pragma: no cover - surfaced to UI
+            st.error(f"Mock 배치 실행 중 오류가 발생했습니다: {exc}")
+        else:
+            st.session_state["mock_batch_info"] = info
+            st.session_state["mock_batch_df"] = info.get("labels_df")
+            st.session_state["mock_batch_conversations"] = info.get("conversations")
+            st.success(f"Mock 배치 완료: {info['count']}건 라벨링")
+
+    render_mock_batch_overview()
+
+
+def render_mock_batch_overview() -> None:
+    info = st.session_state.get("mock_batch_info") or {}
+    df: Optional[pd.DataFrame] = st.session_state.get("mock_batch_df")
+    conversations = st.session_state.get("mock_batch_conversations") or []
+
+    if not info:
+        st.info("아직 Mock 배치를 실행하지 않았습니다.")
+        return
+
+    st.success(
+        f"최근 실행: {info.get('timestamp', 'N/A')} · 문의 {info.get('count', 0)}건 · 실패 {len(info.get('failed', []))}건"
+    )
+    st.markdown(
+        f"- Raw 디렉터리: `{info['raw_dir']}`\n"
+        f"- Domain 스냅샷: `{info['domain_path']}`\n"
+        f"- 라벨 JSON: `{info['labels_path']}`"
+    )
+
+    labels_path = Path(info["labels_path"])
+    if labels_path.exists():
+        st.download_button(
+            "라벨 JSON 다운로드",
+            data=labels_path.read_bytes(),
+            file_name=labels_path.name,
+            mime="application/json",
+            key=f"download_mock_labels_{info.get('timestamp','')}",
+        )
+
+    raw_userchats = Path(info["raw_dir"]) / "user_chats.json"
+    if raw_userchats.exists():
+        raw_payload = json.loads(raw_userchats.read_text(encoding="utf-8"))
+        with st.expander("Raw userChats 미리보기"):
+            st.json(raw_payload)
+        st.download_button(
+            "Raw userChats JSON 다운로드",
+            data=raw_userchats.read_bytes(),
+            file_name=raw_userchats.name,
+            mime="application/json",
+            key=f"download_mock_raw_{info.get('timestamp','')}",
+        )
+
+    ids_path = info.get("ids_path")
+    if ids_path and Path(ids_path).exists():
+        ids_data = Path(ids_path).read_text(encoding="utf-8")
+        with st.expander("신규 inquiry_ids"):
+            st.write(json.loads(ids_data))
+        st.download_button(
+            "new_inquiry_ids.json 다운로드",
+            data=ids_data.encode("utf-8"),
+            file_name=Path(ids_path).name,
+            mime="application/json",
+            key=f"download_mock_ids_{info.get('timestamp','')}",
+        )
+
+    domain_path = Path(info["domain_path"])
+    if domain_path.exists():
+        domain_payload = json.loads(domain_path.read_text(encoding="utf-8"))
+        with st.expander("도메인 스냅샷 미리보기"):
+            st.json(domain_payload)
+
+    if df is not None and not df.empty:
+        st.dataframe(df, use_container_width=True, hide_index=True)
+        csv_bytes = df.to_csv(index=False).encode("utf-8")
+        st.download_button(
+            "Mock 배치 라벨 CSV 다운로드",
+            data=csv_bytes,
+            file_name="mock_batch_labels.csv",
+            mime="text/csv",
+            key=f"download_mock_csv_{info.get('timestamp','')}",
+        )
+
+    failed = info.get("failed") or []
+    errors = info.get("errors") or {}
+    if failed:
+        st.warning(f"라벨링 실패 ID: {', '.join(failed)}")
+        for convo_id in failed:
+            st.text(f"- {convo_id}: {errors.get(convo_id, '(error message unavailable)')}")
+
+    if conversations:
+        st.subheader("라벨링된 대화 상세")
+        selected_id = st.selectbox(
+            "대화 선택",
+            [conv.id for conv in conversations],
+            key="mock_batch_convo_selector",
+        )
+        selected = next((conv for conv in conversations if conv.id == selected_id), None)
+        if selected:
+            with st.expander(f"대화 {selected.id} 메시지", expanded=True):
+                for message in selected.messages:
+                    st.markdown(
+                        f"**{message.sender_type}** ({message.created_at.strftime('%H:%M:%S')}): {message.text}"
+                    )
+            matching = None
+            if df is not None:
+                matching = df[df["conversation_id"] == selected.id]
+            if matching is not None and not matching.empty:
+                st.table(matching)
 
 
 def render_raw_data_form() -> None:
@@ -489,6 +628,72 @@ def normalize_conversations(
     return conversations, records, str(csv_path)
 
 
+def run_mock_batch_pipeline(library: SampleLibrary, count: int, use_llm: bool) -> Dict[str, Any]:
+    MOCK_BATCH_DIR.mkdir(parents=True, exist_ok=True)
+    timestamp = datetime.utcnow().strftime("%Y%m%d_%H%M%S")
+    batch_dir = MOCK_BATCH_DIR / f"run_{timestamp}"
+    raw_dir = batch_dir / "raw"
+    domain_dir = batch_dir / "domain"
+
+    mock_api = MockChannelTalkAPI()
+    user_chats_payload, messages_payloads = mock_api.fetch_user_chats(count=count)
+    save_raw_payload(raw_dir, user_chats_payload, messages_payloads)
+    conversations = load_conversations(raw_dir)
+    domain_path, ids_path = save_domain_snapshot(conversations, domain_dir)
+
+    settings = get_settings()
+    retriever = SimilarityRetriever(
+        top_k=settings.retrieval.sample_top_k,
+        min_similarity=settings.retrieval.min_similarity,
+    )
+    llm_service = None
+    if use_llm:
+        st.write(
+            f"LLM 호출 준비 - model={settings.llm.model_name}, temperature={settings.llm.temperature}, "
+            f"OPENAI_API_KEY={'set' if os.getenv('OPENAI_API_KEY') else 'missing'}"
+        )
+        try:
+            llm_service = LLMService(model=settings.llm.model_name, temperature=settings.llm.temperature)
+        except Exception as exc:
+            st.error(f"LLM 초기화 실패: {exc}")
+            raise
+
+    if settings.labels.schema:
+        label_schema = [item.id for item in settings.labels.schema]
+    else:
+        label_schema = sorted({record.label_primary for record in library})
+
+    pipeline = LabelingPipeline(retriever=retriever, llm_service=llm_service)
+    st.write(f"라벨링 시작 - 대화 {len(conversations)}건, LLM 사용={bool(llm_service)}")
+    result = pipeline.run(conversations, library, label_schema=label_schema)
+
+    batch_dir.mkdir(parents=True, exist_ok=True)
+    labels_path = batch_dir / "labels.json"
+    labels_payload = {
+        "generated_at": timestamp,
+        "records": [serialize_label_record(record) for record in result.records],
+        "failed": result.failed,
+        "errors": result.errors,
+    }
+    labels_path.write_text(json.dumps(labels_payload, ensure_ascii=False, indent=2), encoding="utf-8")
+
+    df = label_records_to_dataframe(result.records)
+    return {
+        "timestamp": timestamp,
+        "batch_dir": str(batch_dir),
+        "raw_dir": str(raw_dir),
+        "domain_path": str(domain_path),
+        "ids_path": str(ids_path),
+        "labels_path": str(labels_path),
+        "count": len(conversations),
+        "failed": result.failed,
+        "errors": result.errors,
+        "records": result.records,
+        "labels_df": df,
+        "conversations": conversations,
+    }
+
+
 def library_to_dataframe(library: SampleLibrary) -> pd.DataFrame:
     rows = []
     for record in library:
@@ -525,6 +730,27 @@ def label_records_to_dataframe(records: List[LabelRecord]) -> pd.DataFrame:
             }
         )
     return pd.DataFrame(rows)
+
+
+def serialize_label_record(record: LabelRecord) -> Dict[str, Any]:
+    return {
+        "conversation_id": record.conversation_id,
+        "created_at": record.created_at.isoformat(),
+        "label_primary": record.result.label_primary,
+        "label_secondary": list(record.result.label_secondary),
+        "confidence": record.result.confidence,
+        "summary": record.result.summary,
+        "reasoning": record.result.reasoning,
+        "references": [
+            {
+                "sample_id": ref.sample_id,
+                "label": ref.label,
+                "score": ref.score,
+                "summary": ref.summary,
+            }
+            for ref in record.result.references
+        ],
+    }
 
 
 if __name__ == "__main__":

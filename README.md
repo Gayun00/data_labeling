@@ -45,6 +45,7 @@ review-labeler-mvp/
    ```bash
    streamlit run ui/app.py
    ```
+   - 샘플 관리 탭에서 CSV를 업로드하고, Mock API 배치 탭에서 “Mock API 호출 및 배치 실행” 버튼을 눌러 원본→라벨링 전체 데모를 체험할 수 있습니다.
 
 ## 데모 커맨드
 - `make demo-conversations`: `data/raw/demo/` 샘플을 `ConversationFactory`로 변환해 라벨링 입력 구조를 확인합니다.
@@ -52,6 +53,7 @@ review-labeler-mvp/
 - `make demo-labeler`: 위 두 결과를 사용해 샘플 검색→OpenAI LLM 호출→라벨 결과(JSON)를 생성합니다. (OPENAI_API_KEY 필요)
 - `make demo-batch`: 도메인 저장(`data/domain/`)과 신규 ID 기록 후 라벨러를 자동으로 실행하여 push 배치 흐름을 재현합니다.
 - `make demos`: 기본 세 데모를 순차 실행합니다.
+- `make serve-ui`: Streamlit UI(`ui/app.py`)를 실행합니다.
 
 ## 구현 우선순위
 

@@ -2,8 +2,9 @@
 
 from __future__ import annotations
 
+import logging
 import json
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Any, Dict, List, Optional, Protocol, Sequence
 
@@ -12,11 +13,14 @@ from src.models.label import LabelRecord, LabelResult, SampleReference
 from src.models.sample import SampleLibrary, SampleMatch
 from src.retrieval import SimilarityRetriever
 
+logger = logging.getLogger(__name__)
+
 
 @dataclass
 class LabelingResult:
     records: List[LabelRecord]
     failed: List[str]
+    errors: Dict[str, str] = field(default_factory=dict)
 
 
 class LabelingPipeline:
@@ -36,6 +40,7 @@ class LabelingPipeline:
     ) -> LabelingResult:
         records: List[LabelRecord] = []
         failed: List[str] = []
+        errors: Dict[str, str] = {}
 
         for convo in conversations:
             matches = self.retriever.retrieve(convo, library) if library else []
@@ -43,9 +48,11 @@ class LabelingPipeline:
             if self.llm_service is not None:
                 try:
                     result = self.llm_service.label(convo, matches, label_schema)
-                except Exception:  # pragma: no cover - fallback path
+                except Exception as exc:  # pragma: no cover - fallback path
+                    logger.exception("Labeling failed for %s", convo.id)
                     result = self._fallback_label(matches)
                     failed.append(convo.id)
+                    errors[convo.id] = str(exc)
             else:
                 result = self._fallback_label(matches)
 
@@ -58,7 +65,7 @@ class LabelingPipeline:
                 )
             )
 
-        return LabelingResult(records=records, failed=failed)
+        return LabelingResult(records=records, failed=failed, errors=errors)
 
     def _fallback_label(self, matches: Sequence[SampleMatch]) -> LabelResult:
         if matches:
@@ -97,19 +104,25 @@ class OpenAIBackend:
         self._client = client or OpenAI()
 
     def complete(self, messages: Sequence[Dict[str, Any]], model: str, temperature: float) -> str:
-        completion = self._client.responses.create(  # type: ignore[attr-defined]
+        completion = self._client.chat.completions.create(  # type: ignore[attr-defined]
             model=model,
-            input=list(messages),
+            messages=list(messages),
             temperature=temperature,
         )
 
-        try:
-            return completion.output_text  # type: ignore[attr-defined]
-        except AttributeError:
-            choice = completion.choices[0]
-            if isinstance(choice, dict):  # type: ignore[unreachable]
-                return choice["message"]["content"]
-            return choice.message.content  # type: ignore[attr-defined]
+        message = completion.choices[0].message
+        content = message["content"] if isinstance(message, dict) else message.content  # type: ignore[index]
+        if isinstance(content, str):
+            return content
+        if isinstance(content, list):
+            parts: List[str] = []
+            for item in content:
+                if isinstance(item, dict) and "text" in item:
+                    parts.append(str(item.get("text") or ""))
+                elif isinstance(item, str):
+                    parts.append(item)
+            return "\n".join(parts)
+        return str(content)
 
 
 class LLMService:

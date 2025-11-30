@@ -360,6 +360,11 @@
 - 기본 구현은 `OpenAIBackend`(Responses API 사용)이며, Hugging Face 모델을 사용하려면 동일한 `complete(messages, model, temperature)` 인터페이스를 가진 백엔드를 추가하면 된다.
 - `LLMService`는 백엔드와 모델명을 주입받아 프롬프트를 구성하고 JSON 응답을 파싱하므로, 모델 교체 시 라벨링 파이프라인 코드는 그대로 유지된다.
 
+### 14.3 Streamlit Mock Batch Demo
+- `streamlit run ui/app.py` 실행 후 **Mock API 배치** 탭에서 버튼 하나로 Mock ChannelTalk API → 도메인 스냅샷 → 라벨링까지 연결된 데모를 확인할 수 있다.
+- UI는 `MockChannelTalkAPI`로 생성한 raw payload를 `data/mock_batches/run_{timestamp}` 아래에 저장하고, 자동으로 라벨 결과 JSON/CSV 다운로드를 제공한다.
+- 이 탭을 통해 샘플 업로드 → Mock 데이터 수집 → Push 라벨링 → 결과 확인까지 전체 플로우를 눈으로 확인할 수 있으며, 실제 API 연동 시에도 동일한 파이프라인이 동작한다.
+
 ## 15. 라벨링 결과 검증 시나리오
 
 - **JSON 스키마 누락**

@@ -1,4 +1,4 @@
-.PHONY: demo-conversations demo-samples demo-labeler demo-batch demos
+.PHONY: demo-conversations demo-samples demo-labeler demo-batch demos serve-ui
 
 PYTHON ?= python3
 
@@ -15,3 +15,6 @@ demo-batch:
 	$(PYTHON) scripts/demo_batch_runner.py
 
 demos: demo-conversations demo-samples demo-labeler
+
+serve-ui:
+	$(PYTHON) -m streamlit run ui/app.py

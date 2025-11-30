@@ -17,7 +17,8 @@ if str(ROOT) not in sys.path:
 
 load_dotenv(ROOT / ".env")
 
-from src.models.conversation import Conversation, Message
+from src.demo.conversations import load_conversations
+from src.models.conversation import Conversation
 from src.models.label import LabelRecord
 from src.models.sample import SampleLibrary
 from src.pipeline.labeling import LLMService, LabelingPipeline
@@ -39,66 +40,6 @@ def to_serializable(obj: Any) -> Any:
     return obj
 
 
-def load_conversations() -> List[Conversation]:
-    payload = _read_json(RAW_DEMO_DIR / "user_chats.json")
-    user_chats = payload.get("userChats") or []
-    messages_map: Dict[str, List[Message]] = {}
-
-    for user_chat in user_chats:
-        conv_id = str(user_chat.get("id"))
-        messages_path = RAW_DEMO_DIR / f"messages_{conv_id}.json"
-        if messages_path.exists():
-            messages_payload = _read_json(messages_path)
-            messages_map[conv_id] = _build_messages(conv_id, messages_payload)
-        else:
-            messages_map[conv_id] = []
-
-    conversations: List[Conversation] = []
-    for user_chat in user_chats:
-        conversations.append(_build_conversation(user_chat, messages_map))
-    return conversations
-
-
-def _build_messages(conv_id: str, payload: dict) -> List[Message]:
-    messages: List[Message] = []
-    for msg in payload.get("messages", []):
-        created_at = datetime.fromtimestamp(msg.get("createdAt", 0))
-        messages.append(
-            Message(
-                id=str(msg.get("id")),
-                conversation_id=conv_id,
-                sender_type=str(msg.get("personType")),
-                sender_id=msg.get("personId"),
-                created_at=created_at,
-                text=msg.get("plainText") or "",
-            )
-        )
-    return sorted(messages, key=lambda m: m.created_at)
-
-
-def _build_conversation(user_chat: dict, messages_map: Dict[str, List[Message]]) -> Conversation:
-    conv_id = str(user_chat.get("id"))
-    created_at = datetime.fromtimestamp(user_chat.get("createdAt", 0))
-    closed_at_raw = user_chat.get("closedAt")
-    closed_at = datetime.fromtimestamp(closed_at_raw) if closed_at_raw else None
-
-    return Conversation(
-        id=conv_id,
-        channel_id=user_chat.get("channelId"),
-        created_at=created_at,
-        closed_at=closed_at,
-        participants=None,
-        messages=messages_map.get(conv_id, []),
-        meta={},
-    )
-
-
-def _read_json(path: Path) -> dict:
-    if not path.exists():
-        raise FileNotFoundError(f"파일을 찾을 수 없습니다: {path}")
-    return json.loads(path.read_text(encoding="utf-8"))
-
-
 def main() -> None:
     library_path = SAMPLES_DIR / "demo_library.json"
     if not library_path.exists():
@@ -108,7 +49,8 @@ def main() -> None:
         raise SystemExit("OPENAI_API_KEY가 설정되어 있지 않습니다.")
 
     library = SampleLibrary.from_dict(json.loads(library_path.read_text(encoding="utf-8")))
-    conversations = load_conversations()
+    raw_dir = Path(os.environ.get("DEMO_RAW_DIR", RAW_DEMO_DIR))
+    conversations = load_conversations(raw_dir)
 
     retriever = SimilarityRetriever(top_k=3)
     model_name = os.environ.get("LABELER_MODEL", "gpt-4o-mini")
@@ -125,6 +67,7 @@ def main() -> None:
     payload = {
         "records": [to_serializable(asdict(record)) for record in result.records],
         "failed": result.failed,
+        "errors": result.errors,
     }
     output_path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
 
@@ -133,6 +76,9 @@ def main() -> None:
         print(f"- {record.conversation_id}: {record.result.label_primary} (confidence={record.result.confidence})")
     if result.failed:
         print("실패 ID:", ", ".join(result.failed))
+        for convo_id in result.failed:
+            detail = result.errors.get(convo_id, "(no error message)")
+            print(f"  - {convo_id}: {detail}")
 
 
 if __name__ == "__main__":
