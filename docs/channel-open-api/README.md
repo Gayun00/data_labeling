@@ -219,6 +219,15 @@
   - 단순 MVP: Cron + Python 스크립트 체이닝, 커서는 로컬/DB에 저장.
   - 확장 시: Airflow/Prefect 등으로 DAG 구성, 태스크 간 의존성 관리, 재시작 지원.
   - 각 태스크는 idempotent하게 작성해 재시도 시 중복 저장을 피함(upsert).
+- **자동 라벨링 트리거**
+  - `build_inquiries`가 새 문의 ID 목록을 반환하도록 하고, 배치 러너가 곧바로 `run_labeling` 태스크를 호출해 push 방식으로 라벨링을 실행.
+  - 구성 예시 (간단 CLI 체인)
+    1. `python scripts/fetch_user_chats.py --since state.json` → 커서 갱신.
+    2. `python scripts/build_inquiries.py --output new_ids.json` → 새 ID 저장.
+    3. `python scripts/run_labeler.py --ids new_ids.json` → LLM 호출 → `labels` 저장.
+  - Airflow/Prefect 등으로 확장할 경우 `build_inquiries` 태스크의 XCom/Result를 다음 태스크에 전달해 동일 구조를 유지한다.
+  - 실패 시 run ID, 실패 ID, 재시도 가능 여부를 로그/테이블로 기록해 재실행 시에도 동일 ID만 처리하도록 한다.
+  - **데모**: `scripts/demo_batch_runner.py` (`make demo-batch`)가 위 흐름을 단일 커맨드로 재현해 `data/domain/`에 도메인 JSON·신규 ID를 생성하고 `demo_labeler.py`를 자동 실행한다.
 - **모니터링**
   - 처리 건수, 실패 건수, 마지막 커서, 라벨링 응답 시간 등을 metric/log로 기록.
   - 경고 조건: 커서 정지(신규 데이터 없음), API 실패 반복, 라벨링 에러율 상승.

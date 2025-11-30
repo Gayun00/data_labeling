@@ -1,4 +1,4 @@
-.PHONY: demo-conversations demo-samples demo-labeler demos
+.PHONY: demo-conversations demo-samples demo-labeler demo-batch demos
 
 PYTHON ?= python3
 
@@ -10,5 +10,8 @@ demo-samples:
 
 demo-labeler:
 	$(PYTHON) scripts/demo_labeler.py
+
+demo-batch:
+	$(PYTHON) scripts/demo_batch_runner.py
 
 demos: demo-conversations demo-samples demo-labeler
