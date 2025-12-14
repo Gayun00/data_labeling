@@ -5,3 +5,5 @@ __pycache__/
 .vscode/
 .DS_Store
 data/
+accountkey.json
+bigquery_viewer/.env
